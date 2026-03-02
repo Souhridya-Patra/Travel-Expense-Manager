@@ -1,0 +1,33 @@
+fastapi>=0.104.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.5.0
+python-multipart>=0.0.12
+
+# ML Training (PyTorch) - MUST HAVE MATCHING VERSIONS
+torch==2.10.0
+torchvision==0.25.0
+transformers>=4.45.0
+datasets>=2.20.0
+
+# ML Training (TensorFlow)
+tensorflow>=2.16.0
+
+# Data & preprocessing
+numpy>=1.24.0
+pandas>=2.0.0
+pillow>=10.0.0
+opencv-python>=4.8.0
+
+# Dataset utilities
+requests>=2.31.0
+tqdm>=4.65.0
+scikit-learn>=1.4.0
+
+# Model evaluation & training
+pytorch-lightning>=2.3.0
+
+# CUDA/GPU support (optional - install separately if needed)
+# torch-cuda-toolkit>=12.1
+
+# Note: For GPU support, install CUDA-enabled versions:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
