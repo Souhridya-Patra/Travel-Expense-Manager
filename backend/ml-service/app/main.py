@@ -4,6 +4,7 @@ Updated FastAPI service with trained model integration.
 
 import os
 import logging
+from pathlib import Path
 from io import BytesIO
 from typing import Any
 
@@ -14,6 +15,7 @@ from PIL import Image
 from app.config import DATA_STORAGE_PATH
 from app.model_registry import ModelRegistry
 from app.datasets import DatasetManager
+from app.training import retrain_parser_from_feedback
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -67,6 +69,12 @@ class ItemsResponse(BaseModel):
     status: str
     items: list[dict[str, Any]]
     confidence: float = 0.0
+
+
+class RetrainRequest(BaseModel):
+    samples: int = 128
+    epochs: int = 2
+    feedback_file: str | None = None
 
 
 @app.get("/health")
@@ -193,6 +201,37 @@ def train_feedback(payload: FeedbackRequest) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Feedback storage failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ml/train/retrain")
+def retrain_from_feedback(payload: RetrainRequest) -> dict[str, Any]:
+    """
+    Trigger parser retraining from accumulated feedback corrections.
+    This performs a lightweight incremental retraining pass.
+    """
+    try:
+        feedback_file = DATA_STORAGE_PATH / "feedback.jsonl"
+        if payload.feedback_file:
+            feedback_file = Path(payload.feedback_file)
+
+        result = retrain_parser_from_feedback(
+            feedback_path=feedback_file,
+            max_samples=payload.samples,
+            num_epochs=payload.epochs,
+        )
+
+        ModelRegistry.reload_models()
+        if models:
+            _ = models.get_parser_model()
+
+        return {
+            "status": "success",
+            "message": "Parser retraining from feedback complete",
+            "result": result,
+        }
+    except Exception as e:
+        logger.error(f"Retraining from feedback failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Retraining failed: {str(e)}")
 
 
 @app.get("/api/ml/status")

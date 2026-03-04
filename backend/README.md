@@ -89,6 +89,7 @@ Gateway URL: `http://localhost:8000`
 - `POST /api/ml/ocr/analyze` - Scan receipt and extract text (TrOCR)
 - `POST /api/ml/parse/items` - Parse items from text (BERT NER)
 - `POST /api/ml/train/feedback` - Store corrections for retraining
+- `POST /api/ml/train/retrain` - Retrain parser incrementally from feedback.jsonl
 - `GET /api/ml/status` - Model availability status
 
 ## Directory Structure

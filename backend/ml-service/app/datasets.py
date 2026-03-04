@@ -65,7 +65,7 @@ class DatasetManager:
             or (dataset_path / "dataset_info.json").exists()
             or (dataset_path / "hf_source.json").exists()
         ):
-            print(f"✓ SROIE dataset already exists at {dataset_path}")
+            print(f"[OK] SROIE dataset already exists at {dataset_path}")
             return dataset_path
 
         print("Downloading SROIE dataset...")
@@ -85,9 +85,9 @@ class DatasetManager:
                 if DatasetManager.is_valid_zip(zip_path):
                     downloaded = True
                     break
-                print("  ⚠ Downloaded file is not a valid ZIP. Retrying with next URL...")
+                print("  [WARN] Downloaded file is not a valid ZIP. Retrying with next URL...")
             except Exception as exc:
-                print(f"  ⚠ Failed to download from URL: {exc}")
+                print(f"  [WARN] Failed to download from URL: {exc}")
 
         if downloaded:
             # Clean up partial extraction from previous failed runs
@@ -101,7 +101,7 @@ class DatasetManager:
         if zip_path.exists():
             zip_path.unlink(missing_ok=True)
 
-        print("⚠ ZIP download failed, trying Hugging Face mirrors for SROIE...")
+        print("[WARN] ZIP download failed, trying Hugging Face mirrors for SROIE...")
         hf_datasets = config.get("hf_datasets", [])
         if hf_datasets:
             try:
@@ -118,14 +118,14 @@ class DatasetManager:
                         if dataset_path.exists() and not (dataset_path / "box").exists():
                             shutil.rmtree(dataset_path, ignore_errors=True)
                         DatasetManager.save_hf_source_metadata(dataset_path, dataset_id)
-                        print(f"✓ SROIE dataset ready from Hugging Face ({dataset_id})")
+                        print(f"[OK] SROIE dataset ready from Hugging Face ({dataset_id})")
                         return dataset_path
                     except Exception as hf_exc:
-                        print(f"  ⚠ HF dataset unavailable: {hf_exc}")
+                        print(f"  [WARN] HF dataset unavailable: {hf_exc}")
             except Exception as import_exc:
-                print(f"  ⚠ Could not use Hugging Face datasets loader: {import_exc}")
+                print(f"  [WARN] Could not use Hugging Face datasets loader: {import_exc}")
 
-        print("⚠ Could not automatically download SROIE dataset.")
+        print("[WARN] Could not automatically download SROIE dataset.")
         print("  You can manually download and extract into:")
         print(f"  {dataset_path}")
         print("  Then rerun setup_phase2.py")
@@ -142,7 +142,7 @@ class DatasetManager:
             or (dataset_path / "dataset_info.json").exists()
             or (dataset_path / "hf_source.json").exists()
         ):
-            print(f"✓ CORD dataset already exists at {dataset_path}")
+            print(f"[OK] CORD dataset already exists at {dataset_path}")
             return dataset_path
 
         print("Setting up CORD dataset from Hugging Face...")
@@ -160,16 +160,16 @@ class DatasetManager:
                     if dataset_path.exists():
                         shutil.rmtree(dataset_path, ignore_errors=True)
                     DatasetManager.save_hf_source_metadata(dataset_path, dataset_id)
-                    print(f"✓ CORD dataset ready ({dataset_id})")
+                    print(f"[OK] CORD dataset ready ({dataset_id})")
                     return dataset_path
                 except Exception as e:
-                    print(f"  ⚠ Could not load {dataset_id}: {e}")
+                    print(f"  [WARN] Could not load {dataset_id}: {e}")
 
-            print("⚠ Could not load any configured CORD dataset mirrors")
+            print("[WARN] Could not load any configured CORD dataset mirrors")
             print(f"  Try manual source: {config.get('url')}")
             return None
         except Exception as e:
-            print(f"⚠ Could not download CORD: {e}")
+            print(f"[WARN] Could not download CORD: {e}")
             print(f"  Download manually from: {config.get('url')}")
             return None
 
@@ -183,7 +183,7 @@ class DatasetManager:
             print(f"✓ RVL-CDIP dataset already exists at {dataset_path}")
             return dataset_path
 
-        print("⚠ RVL-CDIP requires manual download")
+        print("[WARN] RVL-CDIP requires manual download")
         print("  1. Visit: https://www.cs.cmu.edu/~aharley/RVL-CDIP.html")
         print("  2. Download and extract to:", dataset_path)
         return None
@@ -230,13 +230,13 @@ class DatasetManager:
 """
             )
 
-        print(f"✓ User collected dataset directory ready at {dataset_path}")
+        print(f"[OK] User collected dataset directory ready at {dataset_path}")
         return dataset_path
 
     @staticmethod
     def prepare_all_datasets() -> dict:
         """Prepare all available datasets."""
-        print("\n🔄 Preparing datasets...\n")
+        print("\n[INFO] Preparing datasets...\n")
 
         datasets = {}
         datasets["sroie"] = DatasetManager.setup_sroie()
@@ -244,7 +244,7 @@ class DatasetManager:
         datasets["rvl_cdip"] = DatasetManager.setup_rvl_cdip()
         datasets["user_collected"] = DatasetManager.setup_user_collected()
 
-        print("\n✓ Dataset preparation complete\n")
+        print("\n[OK] Dataset preparation complete\n")
         return datasets
 
 

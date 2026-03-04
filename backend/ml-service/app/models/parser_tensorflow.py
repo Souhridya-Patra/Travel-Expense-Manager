@@ -1,6 +1,5 @@
-import numpy as np
-import tensorflow as tf
-from transformers import AutoTokenizer, TFAutoModelForTokenClassification
+import torch
+from transformers import AutoTokenizer, AutoModelForTokenClassification
 from typing import Optional, List, Tuple
 from pathlib import Path
 
@@ -8,7 +7,7 @@ from app.config import PARSER_MODEL_CONFIG
 
 
 class ItemParserModel:
-    """BERT-based Item NER Model (TensorFlow)."""
+    """BERT-based Item NER Model (PyTorch backend fallback)."""
 
     # NER label mapping
     LABEL_MAP = {
@@ -24,7 +23,11 @@ class ItemParserModel:
     LABEL_TO_ID = {v: k for k, v in LABEL_MAP.items()}
 
     def __init__(self, model_dir: Optional[Path] = None, device: str = "cuda"):
-        self.device = device
+        if device == "cuda" and not torch.cuda.is_available():
+            print("⚠ CUDA not available, falling back to CPU for parser model")
+            self.device = "cpu"
+        else:
+            self.device = device
         self.model_dir = model_dir or PARSER_MODEL_CONFIG["checkpoint_dir"]
         self.model = None
         self.tokenizer = None
@@ -36,10 +39,10 @@ class ItemParserModel:
         self.tokenizer = AutoTokenizer.from_pretrained(
             PARSER_MODEL_CONFIG["model_name"]
         )
-        self.model = TFAutoModelForTokenClassification.from_pretrained(
+        self.model = AutoModelForTokenClassification.from_pretrained(
             PARSER_MODEL_CONFIG["model_name"],
             num_labels=PARSER_MODEL_CONFIG["num_labels"],
-        )
+        ).to(self.device)
         print("✓ BERT model loaded")
 
     def load_checkpoint(self, checkpoint_path: Path):
@@ -49,7 +52,9 @@ class ItemParserModel:
 
         print(f"Loading checkpoint from {checkpoint_path}...")
         self.tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
-        self.model = TFAutoModelForTokenClassification.from_pretrained(checkpoint_path)
+        self.model = AutoModelForTokenClassification.from_pretrained(
+            checkpoint_path
+        ).to(self.device)
         print("✓ Model loaded from checkpoint")
 
     def predict(self, text: str) -> List[Tuple[str, str]]:
@@ -59,16 +64,18 @@ class ItemParserModel:
 
         inputs = self.tokenizer(
             text,
-            return_tensors="tf",
+            return_tensors="pt",
             truncation=True,
             max_length=self.max_seq_length,
         )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-        outputs = self.model(**inputs)
-        predictions = tf.argmax(outputs.logits, axis=-1)
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        predictions = torch.argmax(outputs.logits, dim=-1)
 
-        tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
-        predicted_labels = [self.LABEL_MAP[p.numpy()] for p in predictions[0]]
+        tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0].cpu())
+        predicted_labels = [self.LABEL_MAP[int(p.item())] for p in predictions[0].cpu()]
 
         entities = []
         current_entity = {"label": None, "tokens": []}

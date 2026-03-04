@@ -15,8 +15,8 @@ for directory in [DATA_DIR, MODELS_DIR, DATASETS_DIR, LOGS_DIR]:
 
 # Model configurations
 OCR_MODEL_CONFIG = {
-    "model_name": "microsoft/trocr-base-receipt",  # Pre-trained TrOCR for receipts
-    "processor_name": "microsoft/trocr-base-receipt",
+    "model_name": "microsoft/trocr-base-printed",  # Public TrOCR baseline
+    "processor_name": "microsoft/trocr-base-printed",
     "framework": "pytorch",
     "input_size": (384, 384),
     "max_position_embeddings": 1024,

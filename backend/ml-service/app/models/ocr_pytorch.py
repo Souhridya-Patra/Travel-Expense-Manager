@@ -12,7 +12,11 @@ class OCRModel:
     """TrOCR-based Receipt OCR Model (PyTorch)."""
 
     def __init__(self, model_dir: Optional[Path] = None, device: str = "cuda"):
-        self.device = device
+        if device == "cuda" and not torch.cuda.is_available():
+            print("⚠ CUDA not available, falling back to CPU for OCR model")
+            self.device = "cpu"
+        else:
+            self.device = device
         self.model_dir = model_dir or OCR_MODEL_CONFIG["checkpoint_dir"]
         self.model = None
         self.processor = None
@@ -26,6 +30,12 @@ class OCRModel:
         self.model = VisionEncoderDecoderModel.from_pretrained(
             OCR_MODEL_CONFIG["model_name"]
         ).to(self.device)
+        self.model.config.pad_token_id = self.processor.tokenizer.pad_token_id
+        self.model.config.decoder_start_token_id = (
+            self.processor.tokenizer.cls_token_id
+            if self.processor.tokenizer.cls_token_id is not None
+            else self.processor.tokenizer.bos_token_id
+        )
         print("✓ TrOCR model loaded")
 
     def load_checkpoint(self, checkpoint_path: Path):

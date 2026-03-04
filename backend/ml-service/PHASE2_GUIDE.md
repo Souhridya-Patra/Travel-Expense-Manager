@@ -83,7 +83,19 @@ python -m app.training ocr
 python -m app.training parser
 ```
 
-### Option 3: Fine-tune with Your Data
+### Option 3: Retrain Parser with User Feedback (Phase 2d)
+
+```bash
+python -m app.training retrain-parser-feedback --samples 256 --epochs 2
+```
+
+Optionally provide a custom feedback file:
+
+```bash
+python -m app.training retrain-parser-feedback --feedback-file ./data/feedback.jsonl
+```
+
+### Option 4: Fine-tune with Your Data
 
 ```bash
 # Custom training script
@@ -147,6 +159,14 @@ curl -X POST http://localhost:8001/api/ml/train/feedback \
     "original_parse": {"items": [{"name": "Item", "amount": 10}]},
     "corrected_parse": {"items": [{"name": "Item", "amount": 10.50}]}
   }'
+```
+
+### Trigger Feedback Retraining (Phase 2d)
+
+```bash
+curl -X POST http://localhost:8001/api/ml/train/retrain \
+  -H "Content-Type: application/json" \
+  -d '{"samples": 256, "epochs": 2}'
 ```
 
 ## Hyperparameters

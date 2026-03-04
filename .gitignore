@@ -23,3 +23,40 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+ENV/
+env/
+
+# ML Models & Datasets (Large Files)
+*.safetensors
+*.bin
+*.pth
+*.onnx
+*.h5
+*.pkl
+*.pickle
+backend/ml-service/models/ocr_model/
+backend/ml-service/models/parser_model/
+backend/ml-service/data/datasets/.hf_cache/
+backend/ml-service/data/datasets/cord/
+backend/ml-service/data/datasets/sroie/
+backend/ml-service/data/datasets/rvl_cdip/
+backend/ml-service/data/feedback.jsonl
+backend/ml-service/logs/
+*.arrow
+*.parquet
+
+# Keep only metadata and user-collected structure
+!backend/ml-service/data/datasets/user_collected/README.md
+!backend/ml-service/data/datasets/*/hf_source.json

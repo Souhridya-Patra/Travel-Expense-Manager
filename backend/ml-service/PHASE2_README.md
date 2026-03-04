@@ -45,9 +45,15 @@ This downloads:
 # Train all models
 python -m app.training
 
-# Or train individual models (coming in Phase 2.1)
+# Or train individual models
 python -m app.training ocr
 python -m app.training parser
+```
+
+### 5) Retrain Parser with Feedback (Phase 2d)
+
+```bash
+python -m app.training retrain-parser-feedback --samples 256 --epochs 2
 ```
 
 ### 5) Verify FastAPI Service
@@ -122,6 +128,14 @@ curl -X POST http://localhost:8001/api/ml/parse/items \
 curl -X POST http://localhost:8001/api/ml/train/feedback \
   -H "Content-Type: application/json" \
   -d '{"receipt_id": "123", "original_parse": {...}, "corrected_parse": {...}}'
+```
+
+### Trigger Feedback Retraining
+
+```bash
+curl -X POST http://localhost:8001/api/ml/train/retrain \
+  -H "Content-Type: application/json" \
+  -d '{"samples": 256, "epochs": 2}'
 ```
 
 ## Custom Training
