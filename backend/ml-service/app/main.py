@@ -9,6 +9,7 @@ from io import BytesIO
 from typing import Any
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
 
@@ -25,6 +26,23 @@ app = FastAPI(
     title="Trip Expense ANI Service",
     version="0.2.0",
     description="Artificial Narrow Intelligence for receipt parsing"
+)
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ML_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Initialize models on startup

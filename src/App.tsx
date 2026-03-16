@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine } from 'lucide-react';
+import {
+  analyzeReceiptOcr,
+  checkModelStatus,
+  parseReceiptItems,
+  submitFeedback,
+  type ModelStatus,
+  type ParsedItem,
+} from './services/mlService';
 
 interface Expense {
   id: string;
@@ -23,6 +31,14 @@ interface ReceiptItem {
   assignedTo?: string;
 }
 
+const buildReceiptItems = (items: ParsedItem[]): ReceiptItem[] => {
+  return items.map((item, index) => ({
+    id: `${Date.now()}-${index}`,
+    name: item.name,
+    amount: item.amount,
+  }));
+};
+
 function App() {
   const [totalPeople, setTotalPeople] = useState<number>(0);
   const [payers, setPayers] = useState<string[]>([]);
@@ -30,7 +46,6 @@ function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [newExpense, setNewExpense] = useState({ description: '', amount: '', paidBy: '', type: 'regular' as 'regular' | 'food' });
   const [foodOrders, setFoodOrders] = useState<{ [person: string]: string }>({});
-  const [editingExpense, setEditingExpense] = useState<string | null>(null);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [receiptImage, setReceiptImage] = useState<File | null>(null);
@@ -40,6 +55,10 @@ function App() {
   const [ocrText, setOcrText] = useState('');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
+  const [originalReceiptItems, setOriginalReceiptItems] = useState<ReceiptItem[]>([]);
+  const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [mlStatus, setMlStatus] = useState<ModelStatus | null>(null);
 
   // Update all people list when total people changes
   useEffect(() => {
@@ -48,15 +67,16 @@ function App() {
       newAllPeople.push(payers[i - 1] || `Person ${i}`);
     }
     setAllPeople(newAllPeople);
-    
-    // Initialize food orders for new people
-    const newFoodOrders = { ...foodOrders };
-    newAllPeople.forEach(person => {
-      if (!(person in newFoodOrders)) {
-        newFoodOrders[person] = '';
-      }
+
+    setFoodOrders((currentFoodOrders) => {
+      const nextFoodOrders = { ...currentFoodOrders };
+      newAllPeople.forEach((person) => {
+        if (!(person in nextFoodOrders)) {
+          nextFoodOrders[person] = '';
+        }
+      });
+      return nextFoodOrders;
     });
-    setFoodOrders(newFoodOrders);
   }, [totalPeople, payers]);
 
   useEffect(() => {
@@ -66,6 +86,15 @@ function App() {
       }
     };
   }, [receiptPreviewUrl]);
+
+  useEffect(() => {
+    const loadModelStatus = async () => {
+      const status = await checkModelStatus();
+      setMlStatus(status);
+    };
+
+    loadModelStatus();
+  }, []);
 
   // Add a new payer
   const addPayer = () => {
@@ -128,7 +157,7 @@ function App() {
 
     const cleanItemName = (raw: string) => {
       return raw
-        .replace(/^[*#\-]+\s*/g, '')
+        .replace(/^[*#-]+\s*/g, '')
         .replace(/\b\d+\s*x\b/gi, '')
         .replace(/\bqty\s*:?\s*\d+\b/gi, '')
         .replace(/^\d+\.\d+\s*/g, '')
@@ -142,7 +171,7 @@ function App() {
       if (excludedTokens.some(token => lower.includes(token))) return false;
       if (/^\d+$/.test(label)) return false;
       if (label.length < 2) return false;
-      if (/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b/.test(label)) return false;
+      if (/\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b/.test(label)) return false;
       if (/\b\d{2}:\d{2}\b/.test(label)) return false;
       if (/\b(auth|approval|transaction|terminal|merchant|ref|trace|phone|ph)\b/i.test(label)) return false;
       if (/%/.test(amountText)) return false;
@@ -225,46 +254,119 @@ function App() {
     setReceiptPreviewUrl(previewUrl);
     setOcrText('');
     setReceiptItems([]);
+    setOriginalReceiptItems([]);
     setOcrStatus('idle');
     setOcrError(null);
+    setFeedbackStatus(null);
   };
 
   const runOcr = async () => {
     if (!receiptImage) return;
     setOcrStatus('running');
     setOcrError(null);
+    setFeedbackStatus(null);
     setOcrProgress(0);
+
     try {
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker('eng', 1, {
-        logger: (message) => {
-          if (message.status === 'recognizing text') {
-            setOcrProgress(Math.round((message.progress || 0) * 100));
-          }
-        },
-        langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0/tesseract-core.wasm.js',
-        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/worker.min.js'
-      });
-      const { data } = await worker.recognize(receiptImage);
-      await worker.terminate();
-      const text = data.text || '';
+      setOcrProgress(20);
+      const ocrResult = await analyzeReceiptOcr(receiptImage);
+      if (ocrResult.status === 'error') {
+        throw new Error(ocrResult.error || 'ANI OCR request failed');
+      }
+
+      const text = ocrResult.text || '';
+      setOcrProgress(70);
       setOcrText(text);
+
+      const parseResult = await parseReceiptItems(text);
+      let detectedItems: ReceiptItem[] = [];
+
+      if (parseResult.status === 'success' && parseResult.items.length > 0) {
+        detectedItems = buildReceiptItems(parseResult.items).map((item) => ({
+          ...item,
+          assignedTo: suggestPersonForItem(item.name) || undefined,
+        }));
+      } else {
+        detectedItems = parseReceiptText(text);
+      }
+
+      setReceiptItems(detectedItems);
+      setOriginalReceiptItems(detectedItems);
+      setMlStatus((currentStatus: ModelStatus | null) => {
+        if (currentStatus?.status === 'ok') {
+          return currentStatus;
+        }
+        return {
+          status: 'ok',
+          ocr_model: 'loaded',
+          parser_model: 'loaded',
+        };
+      });
+      setOcrProgress(100);
       setOcrStatus('done');
-      setReceiptItems(parseReceiptText(text));
     } catch (error) {
       setOcrStatus('error');
-      setOcrError('Failed to read the receipt. Try a clearer image or paste the text below.');
+      setOcrError(error instanceof Error ? error.message : 'Failed to read the receipt. Try a clearer image or paste the text below.');
       setOcrProgress(0);
     }
   };
 
   const handleParseReceiptText = () => {
-    setReceiptItems(parseReceiptText(ocrText));
+    const parsedItems = parseReceiptText(ocrText);
+    setReceiptItems(parsedItems);
+    if (originalReceiptItems.length === 0) {
+      setOriginalReceiptItems(parsedItems);
+    }
+    setFeedbackStatus(null);
   };
 
   const updateReceiptItem = (id: string, updates: Partial<ReceiptItem>) => {
-    setReceiptItems(items => items.map(item => (item.id === id ? { ...item, ...updates } : item)));
+    setReceiptItems((items) => items.map((item) => (item.id === id ? { ...item, ...updates } : item)));
+    setFeedbackStatus(null);
+  };
+
+  const saveReceiptFeedback = async () => {
+    if (receiptItems.length === 0 || originalReceiptItems.length === 0) {
+      setFeedbackStatus('No parsed receipt data is available to save yet.');
+      return;
+    }
+
+    setSubmittingFeedback(true);
+    setFeedbackStatus(null);
+
+    try {
+      const originalItems = originalReceiptItems.map((item) => ({
+        name: item.name,
+        amount: item.amount,
+      }));
+      const correctedItems = receiptItems.map((item) => ({
+        name: item.name,
+        amount: item.amount,
+      }));
+
+      const response = await submitFeedback({
+        receipt_id: `receipt_${Date.now()}`,
+        original_parse: {
+          items: originalItems,
+          total: originalItems.reduce((sum, item) => sum + item.amount, 0),
+        },
+        corrected_parse: {
+          items: correctedItems,
+          total: correctedItems.reduce((sum, item) => sum + item.amount, 0),
+        },
+      });
+
+      if (response.status === 'stored') {
+        setFeedbackStatus('Corrections saved. Future retraining can use this receipt.');
+        setOriginalReceiptItems(receiptItems);
+      } else {
+        setFeedbackStatus(response.error || response.message || 'Could not save corrections.');
+      }
+    } catch (error) {
+      setFeedbackStatus(error instanceof Error ? error.message : 'Could not save corrections.');
+    } finally {
+      setSubmittingFeedback(false);
+    }
   };
 
   const applyParsedItemsToFoodExpense = () => {
@@ -299,7 +401,7 @@ function App() {
   // Add expense
   const addExpense = () => {
     if (newExpense.description && newExpense.amount && newExpense.paidBy) {
-      let expense: Expense = {
+      const expense: Expense = {
         id: Date.now().toString(),
         description: newExpense.description,
         amount: parseFloat(newExpense.amount),
@@ -345,14 +447,6 @@ function App() {
     setExpenses(expenses.filter(expense => expense.id !== id));
   };
 
-  // Update expense
-  const updateExpense = (id: string, updatedExpense: Partial<Expense>) => {
-    setExpenses(expenses.map(expense => 
-      expense.id === id ? { ...expense, ...updatedExpense } : expense
-    ));
-    setEditingExpense(null);
-  };
-
   // Calculate settlements
   const calculateSettlements = () => {
     // Calculate balances for each person
@@ -381,8 +475,8 @@ function App() {
     });
     
     // Calculate settlements
-    const creditors = Object.entries(balances).filter(([_, balance]) => balance > 0.01);
-    const debtors = Object.entries(balances).filter(([_, balance]) => balance < -0.01);
+    const creditors = Object.entries(balances).filter(([, balance]) => balance > 0.01);
+    const debtors = Object.entries(balances).filter(([, balance]) => balance < -0.01);
     
     const newSettlements: Settlement[] = [];
     
@@ -392,7 +486,7 @@ function App() {
     creditors.forEach(([creditor, creditAmount]) => {
       let remainingCredit = creditAmount;
       
-      debtors.forEach(([debtor, debtAmount]) => {
+      debtors.forEach(([debtor]) => {
         if (remainingCredit > 0.01 && workingBalances[debtor] < -0.01) {
           const settlementAmount = Math.min(remainingCredit, Math.abs(workingBalances[debtor]));
           if (settlementAmount > 0.01) {
@@ -508,6 +602,15 @@ function App() {
             <p className="text-sm text-gray-600 mb-4">
               Upload or snap a receipt and let OCR auto-fill line items. Add tags like @Alex or #Sam in the text to suggest who ordered what.
             </p>
+            {mlStatus && mlStatus.status === 'ok' ? (
+              <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                ANI service connected. OCR: {mlStatus.ocr_model}. Parser: {mlStatus.parser_model}.
+              </div>
+            ) : (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                ANI service is unavailable right now. You can still paste receipt text manually and parse it locally.
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div>
@@ -528,11 +631,11 @@ function App() {
                 )}
                 <button
                   onClick={runOcr}
-                  disabled={!receiptImage || ocrStatus === 'running'}
+                  disabled={!receiptImage || ocrStatus === 'running' || mlStatus?.status === 'error'}
                   type="button"
                   className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {ocrStatus === 'running' ? 'Scanning...' : 'Run OCR'}
+                  {ocrStatus === 'running' ? 'Scanning...' : 'Run ANI OCR'}
                 </button>
                 {ocrStatus === 'running' && (
                   <p className="mt-2 text-sm text-gray-600">Progress: {ocrProgress}%</p>
@@ -560,12 +663,14 @@ function App() {
                     type="button"
                     className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all"
                   >
-                    Parse Line Items
+                    Parse Line Items Locally
                   </button>
                   <button
                     onClick={() => {
                       setOcrText('');
                       setReceiptItems([]);
+                      setOriginalReceiptItems([]);
+                      setFeedbackStatus(null);
                     }}
                     type="button"
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all"
@@ -627,6 +732,19 @@ function App() {
                 >
                   Use for Food Expense
                 </button>
+                <button
+                  onClick={saveReceiptFeedback}
+                  disabled={submittingFeedback}
+                  type="button"
+                  className="mt-3 ml-0 md:ml-3 px-5 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all disabled:opacity-60"
+                >
+                  {submittingFeedback ? 'Saving...' : 'Save Corrections for Training'}
+                </button>
+                {feedbackStatus && (
+                  <p className={`mt-3 text-sm ${feedbackStatus.includes('saved') ? 'text-green-600' : 'text-gray-700'}`}>
+                    {feedbackStatus}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -796,7 +914,9 @@ function App() {
                     </div>
                     <div className="flex gap-2 ml-4">
                       <button
-                        onClick={() => setEditingExpense(expense.id)}
+                        onClick={() => {
+                          window.alert('Inline expense editing is not wired yet. You can delete and re-add the expense for now.');
+                        }}
                         className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-all"
                       >
                         <Edit3 className="w-4 h-4" />
