@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
 
-from app.config import DATA_STORAGE_PATH
+from app.config import DATA_DIR as DATA_STORAGE_PATH
 from app.model_registry import ModelRegistry
 from app.datasets import DatasetManager
 from app.training import retrain_parser_from_feedback

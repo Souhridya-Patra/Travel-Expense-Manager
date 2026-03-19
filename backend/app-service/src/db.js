@@ -43,6 +43,11 @@ export const initDb = async () => {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
 
+    ALTER TABLE receipts ADD COLUMN IF NOT EXISTS ocr_text TEXT;
+    ALTER TABLE receipts ADD COLUMN IF NOT EXISTS ocr_confidence NUMERIC(10,4);
+    ALTER TABLE receipts ADD COLUMN IF NOT EXISTS parser_confidence NUMERIC(10,4);
+    ALTER TABLE receipts ADD COLUMN IF NOT EXISTS model_version TEXT;
+
     CREATE TABLE IF NOT EXISTS ml_feedback (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       receipt_id UUID REFERENCES receipts(id) ON DELETE SET NULL,

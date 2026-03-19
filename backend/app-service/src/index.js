@@ -11,6 +11,11 @@ const port = Number(process.env.PORT || 8002);
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
 app.use(express.json({ limit: '10mb' }));
 
+const assertTripAccess = async (tripId, userId) => {
+  const trip = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
+  return trip.rowCount > 0;
+};
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'app-service' });
 });
@@ -87,8 +92,8 @@ app.post('/api/trips', authMiddleware, async (req, res) => {
 app.get('/api/trips/:tripId/expenses', authMiddleware, async (req, res) => {
   const { tripId } = req.params;
 
-  const trip = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, req.user.sub]);
-  if (trip.rowCount === 0) {
+  const hasAccess = await assertTripAccess(tripId, req.user.sub);
+  if (!hasAccess) {
     return res.status(404).json({ message: 'Trip not found' });
   }
 
@@ -109,8 +114,8 @@ app.post('/api/trips/:tripId/expenses', authMiddleware, async (req, res) => {
     return res.status(400).json({ message: 'description, amount and paidBy are required' });
   }
 
-  const trip = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, req.user.sub]);
-  if (trip.rowCount === 0) {
+  const hasAccess = await assertTripAccess(tripId, req.user.sub);
+  if (!hasAccess) {
     return res.status(404).json({ message: 'Trip not found' });
   }
 
@@ -122,6 +127,114 @@ app.post('/api/trips/:tripId/expenses', authMiddleware, async (req, res) => {
   );
 
   res.status(201).json({ expense: inserted.rows[0] });
+});
+
+app.get('/api/trips/:tripId/receipts', authMiddleware, async (req, res) => {
+  const { tripId } = req.params;
+  const hasAccess = await assertTripAccess(tripId, req.user.sub);
+  if (!hasAccess) {
+    return res.status(404).json({ message: 'Trip not found' });
+  }
+
+  const result = await pool.query(
+    `SELECT id, trip_id, image_url, ocr_status, ocr_text, ocr_confidence, parser_confidence, model_version, parsed_items, created_at
+     FROM receipts WHERE trip_id = $1 ORDER BY created_at DESC`,
+    [tripId]
+  );
+
+  return res.json({ receipts: result.rows });
+});
+
+app.post('/api/trips/:tripId/receipts', authMiddleware, async (req, res) => {
+  const { tripId } = req.params;
+  const {
+    imageUrl = null,
+    ocrStatus = 'pending',
+    ocrText = null,
+    ocrConfidence = null,
+    parserConfidence = null,
+    modelVersion = null,
+    parsedItems = []
+  } = req.body;
+
+  const hasAccess = await assertTripAccess(tripId, req.user.sub);
+  if (!hasAccess) {
+    return res.status(404).json({ message: 'Trip not found' });
+  }
+
+  if (!Array.isArray(parsedItems)) {
+    return res.status(400).json({ message: 'parsedItems must be an array' });
+  }
+
+  const inserted = await pool.query(
+    `INSERT INTO receipts(trip_id, image_url, ocr_status, ocr_text, ocr_confidence, parser_confidence, model_version, parsed_items)
+     VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, trip_id, image_url, ocr_status, ocr_text, ocr_confidence, parser_confidence, model_version, parsed_items, created_at`,
+    [
+      tripId,
+      imageUrl,
+      ocrStatus,
+      ocrText,
+      ocrConfidence,
+      parserConfidence,
+      modelVersion,
+      JSON.stringify(parsedItems)
+    ]
+  );
+
+  return res.status(201).json({ receipt: inserted.rows[0] });
+});
+
+app.patch('/api/trips/:tripId/receipts/:receiptId', authMiddleware, async (req, res) => {
+  const { tripId, receiptId } = req.params;
+  const {
+    imageUrl,
+    ocrStatus,
+    ocrText,
+    ocrConfidence,
+    parserConfidence,
+    modelVersion,
+    parsedItems
+  } = req.body;
+
+  const hasAccess = await assertTripAccess(tripId, req.user.sub);
+  if (!hasAccess) {
+    return res.status(404).json({ message: 'Trip not found' });
+  }
+
+  if (parsedItems !== undefined && !Array.isArray(parsedItems)) {
+    return res.status(400).json({ message: 'parsedItems must be an array when provided' });
+  }
+
+  const updated = await pool.query(
+    `UPDATE receipts
+     SET image_url = COALESCE($1, image_url),
+         ocr_status = COALESCE($2, ocr_status),
+         ocr_text = COALESCE($3, ocr_text),
+         ocr_confidence = COALESCE($4, ocr_confidence),
+         parser_confidence = COALESCE($5, parser_confidence),
+         model_version = COALESCE($6, model_version),
+         parsed_items = COALESCE($7::jsonb, parsed_items)
+     WHERE id = $8 AND trip_id = $9
+     RETURNING id, trip_id, image_url, ocr_status, ocr_text, ocr_confidence, parser_confidence, model_version, parsed_items, created_at`,
+    [
+      imageUrl ?? null,
+      ocrStatus ?? null,
+      ocrText ?? null,
+      ocrConfidence ?? null,
+      parserConfidence ?? null,
+      modelVersion ?? null,
+      parsedItems !== undefined ? JSON.stringify(parsedItems) : null,
+      receiptId,
+      tripId
+    ]
+  );
+
+  if (updated.rowCount === 0) {
+    return res.status(404).json({ message: 'Receipt not found' });
+  }
+
+  return res.json({ receipt: updated.rows[0] });
 });
 
 app.post('/api/ml-feedback', authMiddleware, async (req, res) => {

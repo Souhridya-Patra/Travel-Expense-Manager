@@ -33,7 +33,7 @@ app.use(
   createProxyMiddleware({
     target: appServiceUrl,
     changeOrigin: true,
-    pathRewrite: { '^/api/app': '/api' }
+    pathRewrite: (path) => `/api${path}`
   })
 );
 
@@ -42,7 +42,7 @@ app.use(
   createProxyMiddleware({
     target: mlServiceUrl,
     changeOrigin: true,
-    pathRewrite: { '^/api/ml': '/api/ml' }
+    pathRewrite: (path) => `/api/ml${path}`
   })
 );
 

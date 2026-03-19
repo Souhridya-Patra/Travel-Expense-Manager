@@ -83,6 +83,9 @@ Gateway URL: `http://localhost:8000`
 - `POST /api/app/trips` - Create trip
 - `GET /api/app/trips/:tripId/expenses` - List trip expenses
 - `POST /api/app/trips/:tripId/expenses` - Add expense
+- `GET /api/app/trips/:tripId/receipts` - List trip receipts and OCR metadata
+- `POST /api/app/trips/:tripId/receipts` - Save a receipt scan result
+- `PATCH /api/app/trips/:tripId/receipts/:receiptId` - Update parsed items/status for a receipt
 - `POST /api/app/ml-feedback` - Submit feedback for model improvement
 
 ### ML Service
