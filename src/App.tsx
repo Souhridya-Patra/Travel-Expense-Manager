@@ -8,6 +8,12 @@ import {
   type ModelStatus,
   type ParsedItem,
 } from './services/mlService';
+import {
+  createTripReceipt,
+  listTripReceipts,
+  updateTripReceipt,
+  type StoredTripReceipt,
+} from './services/appService';
 
 interface Expense {
   id: string;
@@ -59,6 +65,11 @@ function App() {
   const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [mlStatus, setMlStatus] = useState<ModelStatus | null>(null);
+  const [receiptPersistenceStatus, setReceiptPersistenceStatus] = useState<string | null>(null);
+  const [savedReceiptId, setSavedReceiptId] = useState<string | null>(null);
+  const [receiptHistory, setReceiptHistory] = useState<StoredTripReceipt[]>([]);
+  const [receiptHistoryStatus, setReceiptHistoryStatus] = useState<string | null>(null);
+  const [loadingReceiptHistory, setLoadingReceiptHistory] = useState(false);
 
   // Update all people list when total people changes
   useEffect(() => {
@@ -94,6 +105,25 @@ function App() {
     };
 
     loadModelStatus();
+  }, []);
+
+  const loadReceiptHistory = async () => {
+    setLoadingReceiptHistory(true);
+    const response = await listTripReceipts();
+
+    if (response.status === 'success') {
+      setReceiptHistory(response.receipts);
+      setReceiptHistoryStatus(null);
+    } else {
+      setReceiptHistory([]);
+      setReceiptHistoryStatus(response.message || 'Could not load receipt history.');
+    }
+
+    setLoadingReceiptHistory(false);
+  };
+
+  useEffect(() => {
+    loadReceiptHistory();
   }, []);
 
   // Add a new payer
@@ -258,6 +288,8 @@ function App() {
     setOcrStatus('idle');
     setOcrError(null);
     setFeedbackStatus(null);
+    setReceiptPersistenceStatus(null);
+    setSavedReceiptId(null);
   };
 
   const runOcr = async () => {
@@ -265,6 +297,7 @@ function App() {
     setOcrStatus('running');
     setOcrError(null);
     setFeedbackStatus(null);
+    setReceiptPersistenceStatus(null);
     setOcrProgress(0);
 
     try {
@@ -292,6 +325,29 @@ function App() {
 
       setReceiptItems(detectedItems);
       setOriginalReceiptItems(detectedItems);
+
+      const savedReceipt = await createTripReceipt({
+        imageUrl: receiptImage.name,
+        ocrStatus: 'parsed',
+        ocrText: text,
+        ocrConfidence: ocrResult.confidence,
+        parserConfidence: parseResult.status === 'success' ? parseResult.confidence : null,
+        modelVersion: parseResult.status === 'success' ? parseResult.model : 'local-fallback-parser',
+        parsedItems: detectedItems.map((item) => ({
+          name: item.name,
+          amount: item.amount,
+          assignedTo: item.assignedTo,
+        })),
+      });
+
+      if (savedReceipt.status === 'success') {
+        setSavedReceiptId(savedReceipt.receiptId || null);
+        setReceiptPersistenceStatus('Receipt scan saved to trip history.');
+        await loadReceiptHistory();
+      } else {
+        setReceiptPersistenceStatus(savedReceipt.message || 'Receipt not saved to trip history.');
+      }
+
       setMlStatus((currentStatus: ModelStatus | null) => {
         if (currentStatus?.status === 'ok') {
           return currentStatus;
@@ -359,6 +415,24 @@ function App() {
       if (response.status === 'stored') {
         setFeedbackStatus('Corrections saved. Future retraining can use this receipt.');
         setOriginalReceiptItems(receiptItems);
+
+        if (savedReceiptId) {
+          const updatedReceipt = await updateTripReceipt(savedReceiptId, {
+            ocrStatus: 'reviewed',
+            parsedItems: receiptItems.map((item) => ({
+              name: item.name,
+              amount: item.amount,
+              assignedTo: item.assignedTo,
+            })),
+          });
+
+          if (updatedReceipt.status === 'success') {
+            setReceiptPersistenceStatus('Receipt review synced to trip history.');
+            await loadReceiptHistory();
+          } else {
+            setReceiptPersistenceStatus(updatedReceipt.message || 'Could not sync reviewed receipt to trip history.');
+          }
+        }
       } else {
         setFeedbackStatus(response.error || response.message || 'Could not save corrections.');
       }
@@ -514,6 +588,75 @@ function App() {
   const perPersonRegularShare = totalPeople > 0 ? totalRegularExpenses / totalPeople : 0;
   const receiptItemsTotal = receiptItems.reduce((sum, item) => sum + item.amount, 0);
   const assignedItemsTotal = receiptItems.reduce((sum, item) => sum + (item.assignedTo ? item.amount : 0), 0);
+  const savedReceiptCount = receiptHistory.length;
+  const savedParsedItemsCount = receiptHistory.reduce(
+    (sum, receipt) => sum + (Array.isArray(receipt.parsed_items) ? receipt.parsed_items.length : 0),
+    0
+  );
+  const savedParsedAmountTotal = receiptHistory.reduce(
+    (sum, receipt) =>
+      sum +
+      (Array.isArray(receipt.parsed_items)
+        ? receipt.parsed_items.reduce((innerSum, item) => innerSum + Number(item.amount || 0), 0)
+        : 0),
+    0
+  );
+  const receiptCoveragePercent =
+    totalExpenses > 0 ? Math.min(100, (savedParsedAmountTotal / totalExpenses) * 100) : 0;
+
+  const ocrConfidenceValues = receiptHistory
+    .map((receipt) => receipt.ocr_confidence)
+    .filter((value): value is number => typeof value === 'number');
+  const parserConfidenceValues = receiptHistory
+    .map((receipt) => receipt.parser_confidence)
+    .filter((value): value is number => typeof value === 'number');
+  const avgOcrConfidence =
+    ocrConfidenceValues.length > 0
+      ? ocrConfidenceValues.reduce((sum, value) => sum + value, 0) / ocrConfidenceValues.length
+      : null;
+  const avgParserConfidence =
+    parserConfidenceValues.length > 0
+      ? parserConfidenceValues.reduce((sum, value) => sum + value, 0) / parserConfidenceValues.length
+      : null;
+
+  const foodSpendByPerson = allPeople
+    .map((person) => {
+      const amount = foodExpenses.reduce((sum, expense) => {
+        if (!expense.foodOrders) {
+          return sum;
+        }
+        return sum + Number(expense.foodOrders[person] || 0);
+      }, 0);
+      return { person, amount };
+    })
+    .filter((entry) => entry.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  const topReceiptItemsMap: Record<string, { count: number; amount: number }> = {};
+  receiptHistory.forEach((receipt) => {
+    if (!Array.isArray(receipt.parsed_items)) {
+      return;
+    }
+
+    receipt.parsed_items.forEach((item) => {
+      const name = item.name?.trim() || 'Unknown Item';
+      const key = name.toLowerCase();
+      if (!topReceiptItemsMap[key]) {
+        topReceiptItemsMap[key] = { count: 0, amount: 0 };
+      }
+      topReceiptItemsMap[key].count += 1;
+      topReceiptItemsMap[key].amount += Number(item.amount || 0);
+    });
+  });
+
+  const topReceiptItems = Object.entries(topReceiptItemsMap)
+    .map(([name, metrics]) => ({
+      name,
+      count: metrics.count,
+      amount: metrics.amount,
+    }))
+    .sort((a, b) => b.count - a.count || b.amount - a.amount)
+    .slice(0, 5);
 
   const getTotalFoodOrdersAmount = () => {
     return Object.values(foodOrders).reduce((sum, amount) => sum + (parseFloat(amount) || 0), 0);
@@ -646,6 +789,9 @@ function App() {
                 {ocrStatus === 'done' && (
                   <p className="mt-2 text-sm text-green-600">OCR complete. Review the text and parsed items.</p>
                 )}
+                {receiptPersistenceStatus && (
+                  <p className="mt-2 text-sm text-gray-700">{receiptPersistenceStatus}</p>
+                )}
               </div>
 
               <div>
@@ -671,6 +817,8 @@ function App() {
                       setReceiptItems([]);
                       setOriginalReceiptItems([]);
                       setFeedbackStatus(null);
+                      setReceiptPersistenceStatus(null);
+                      setSavedReceiptId(null);
                     }}
                     type="button"
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all"
@@ -745,6 +893,65 @@ function App() {
                     {feedbackStatus}
                   </p>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Receipt History Section */}
+        {payers.length > 0 && (
+          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h2 className="text-2xl font-semibold text-gray-800 flex items-center gap-2">
+                <Receipt className="w-6 h-6 text-indigo-600" />
+                Receipt History
+              </h2>
+              <button
+                onClick={loadReceiptHistory}
+                disabled={loadingReceiptHistory}
+                type="button"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-60"
+              >
+                {loadingReceiptHistory ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+
+            {receiptHistoryStatus && (
+              <p className="mb-3 text-sm text-amber-700">{receiptHistoryStatus}</p>
+            )}
+
+            {receiptHistory.length === 0 ? (
+              <p className="text-sm text-gray-600">No saved receipts yet for the active trip.</p>
+            ) : (
+              <div className="space-y-3">
+                {receiptHistory.map((receipt) => (
+                  <div key={receipt.id} className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-gray-800">Receipt ID: {receipt.id}</p>
+                      <p className="text-xs text-gray-600">{new Date(receipt.created_at).toLocaleString()}</p>
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
+                      <p>Status: <span className="font-semibold">{receipt.ocr_status}</span></p>
+                      <p>Model: <span className="font-semibold">{receipt.model_version || 'unknown'}</span></p>
+                      <p>OCR confidence: <span className="font-semibold">{receipt.ocr_confidence ?? '-'}</span></p>
+                      <p>Parser confidence: <span className="font-semibold">{receipt.parser_confidence ?? '-'}</span></p>
+                    </div>
+
+                    {Array.isArray(receipt.parsed_items) && receipt.parsed_items.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-sm font-medium text-gray-800 mb-2">Parsed Items</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                          {receipt.parsed_items.map((item, index) => (
+                            <div key={`${receipt.id}-${index}`} className="flex items-center justify-between rounded border border-indigo-200 bg-white px-3 py-2">
+                              <span className="text-gray-700">{item.name}{item.assignedTo ? ` (${item.assignedTo})` : ''}</span>
+                              <span className="font-semibold text-gray-900">${Number(item.amount || 0).toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -951,6 +1158,86 @@ function App() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Phase 3.3 Analytics Panel */}
+        {(expenses.length > 0 || receiptHistory.length > 0) && (
+          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-4">Phase 3.3 Analytics</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                <p className="text-xs text-indigo-700">Saved Receipts</p>
+                <p className="text-xl font-bold text-indigo-900">{savedReceiptCount}</p>
+              </div>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <p className="text-xs text-blue-700">Parsed Items (History)</p>
+                <p className="text-xl font-bold text-blue-900">{savedParsedItemsCount}</p>
+              </div>
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                <p className="text-xs text-green-700">Parsed Amount Coverage</p>
+                <p className="text-xl font-bold text-green-900">{receiptCoveragePercent.toFixed(1)}%</p>
+              </div>
+              <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
+                <p className="text-xs text-purple-700">Tracked Expense Total</p>
+                <p className="text-xl font-bold text-purple-900">${totalExpenses.toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="rounded-lg border border-gray-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">Model Confidence Snapshot</h3>
+                <div className="space-y-2 text-sm text-gray-700">
+                  <p>
+                    Average OCR confidence:{' '}
+                    <span className="font-semibold">{avgOcrConfidence !== null ? avgOcrConfidence.toFixed(3) : 'n/a'}</span>
+                  </p>
+                  <p>
+                    Average parser confidence:{' '}
+                    <span className="font-semibold">{avgParserConfidence !== null ? avgParserConfidence.toFixed(3) : 'n/a'}</span>
+                  </p>
+                  <p>
+                    Parsed amount total (history):{' '}
+                    <span className="font-semibold">${savedParsedAmountTotal.toFixed(2)}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">Top Receipt Items</h3>
+                {topReceiptItems.length === 0 ? (
+                  <p className="text-sm text-gray-600">No parsed receipt history available yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {topReceiptItems.map((entry) => (
+                      <div key={entry.name} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700">{entry.name}</span>
+                        <span className="font-semibold text-gray-900">
+                          {entry.count}x · ${entry.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50 p-4">
+              <h3 className="text-sm font-semibold text-orange-800 mb-2">Food Spend by Person</h3>
+              {foodSpendByPerson.length === 0 ? (
+                <p className="text-sm text-orange-700">No food-order expenses recorded yet.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {foodSpendByPerson.map((entry) => (
+                    <div key={entry.person} className="flex items-center justify-between rounded border border-orange-200 bg-white px-3 py-2 text-sm">
+                      <span className="text-gray-700">{entry.person}</span>
+                      <span className="font-semibold text-gray-900">${entry.amount.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
