@@ -2,11 +2,15 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import { pool, initDb } from './db.js';
 import { authMiddleware, signToken } from './auth.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8002);
+const googleClientId = process.env.GOOGLE_CLIENT_ID || '428178433259-totcan3sf49k76b5kt42q8so76imbtfu.apps.googleusercontent.com';
+const googleClient = new OAuth2Client(googleClientId);
 
 const allowedOrigins = (process.env.CORS_ORIGIN ||
   'http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173')
@@ -75,6 +79,50 @@ app.post('/api/auth/login', async (req, res) => {
   return res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
 });
 
+app.post('/api/auth/google', async (req, res) => {
+  const { idToken } = req.body;
+  if (!idToken) {
+    return res.status(400).json({ message: 'idToken is required' });
+  }
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: googleClientId,
+    });
+
+    const payload = ticket.getPayload();
+    const email = payload?.email?.toLowerCase();
+    const name = payload?.name || payload?.given_name || 'Google User';
+
+    if (!email) {
+      return res.status(400).json({ message: 'Google account email is missing' });
+    }
+
+    let userResult = await pool.query(
+      `SELECT id, name, email FROM users WHERE email = $1`,
+      [email]
+    );
+
+    if (userResult.rowCount === 0) {
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const passwordHash = await bcrypt.hash(randomPassword, 10);
+      userResult = await pool.query(
+        `INSERT INTO users(name, email, password_hash)
+         VALUES($1, $2, $3)
+         RETURNING id, name, email`,
+        [name, email, passwordHash]
+      );
+    }
+
+    const user = userResult.rows[0];
+    const token = signToken({ sub: user.id, email: user.email });
+    return res.json({ token, user });
+  } catch {
+    return res.status(401).json({ message: 'Invalid Google token' });
+  }
+});
+
 app.get('/api/trips', authMiddleware, async (req, res) => {
   const result = await pool.query(`SELECT id, name, members, created_at FROM trips WHERE user_id = $1 ORDER BY created_at DESC`, [
     req.user.sub
@@ -93,6 +141,36 @@ app.post('/api/trips', authMiddleware, async (req, res) => {
     [req.user.sub, name, JSON.stringify(members)]
   );
   res.status(201).json({ trip: result.rows[0] });
+});
+
+app.patch('/api/trips/:tripId', authMiddleware, async (req, res) => {
+  const { tripId } = req.params;
+  const { name, members } = req.body;
+
+  const hasAccess = await assertTripAccess(tripId, req.user.sub);
+  if (!hasAccess) {
+    return res.status(404).json({ message: 'Trip not found' });
+  }
+
+  const result = await pool.query(
+    `UPDATE trips
+     SET name = COALESCE($1, name),
+         members = COALESCE($2::jsonb, members)
+     WHERE id = $3 AND user_id = $4
+     RETURNING id, name, members, created_at`,
+    [
+      name ?? null,
+      members !== undefined ? JSON.stringify(members) : null,
+      tripId,
+      req.user.sub,
+    ]
+  );
+
+  if (result.rowCount === 0) {
+    return res.status(404).json({ message: 'Trip not found' });
+  }
+
+  return res.json({ trip: result.rows[0] });
 });
 
 app.get('/api/trips/:tripId/expenses', authMiddleware, async (req, res) => {

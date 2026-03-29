@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine } from 'lucide-react';
+import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine, LogIn, UserPlus, User, History, LogOut } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 import {
   analyzeReceiptOcr,
@@ -15,6 +15,20 @@ import {
   updateTripReceipt,
   type StoredTripReceipt,
 } from './services/appService';
+import {
+  loginWithEmail,
+  loginWithGoogleIdToken,
+  registerWithEmail,
+  type AuthUser,
+} from './services/authService';
+import {
+  createTripApi,
+  createTripExpenseApi,
+  listTripExpensesApi,
+  listTripsApi,
+  updateTripApi,
+  type TripSummary,
+} from './services/tripService';
 
 interface Expense {
   id: string;
@@ -44,6 +58,32 @@ interface SelectionRect {
   width: number;
   height: number;
 }
+
+interface GuestTripSnapshot {
+  id: string;
+  name: string;
+  updatedAt: string;
+  totalPeople: number;
+  travelerNames: string[];
+  payers: string[];
+  expenses: Expense[];
+  settlements: Settlement[];
+  receiptHistory: StoredTripReceipt[];
+}
+
+type SessionMode = 'user' | 'guest' | null;
+type AuthView = 'choice' | 'login' | 'signup';
+
+const STORAGE_KEYS = {
+  mode: 'sessionMode',
+  token: 'authToken',
+  user: 'authUser',
+  activeTripId: 'activeTripId',
+  guestActiveTripId: 'guestActiveTripId',
+  guestTrips: 'guestTripSnapshots',
+} as const;
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 const buildReceiptItems = (items: ParsedItem[]): ReceiptItem[] => {
   return items.map((item, index) => ({
@@ -87,13 +127,303 @@ function App() {
   const [receiptHistory, setReceiptHistory] = useState<StoredTripReceipt[]>([]);
   const [receiptHistoryStatus, setReceiptHistoryStatus] = useState<string | null>(null);
   const [loadingReceiptHistory, setLoadingReceiptHistory] = useState(false);
+  const [sessionMode, setSessionMode] = useState<SessionMode>(null);
+  const [authView, setAuthView] = useState<AuthView>('choice');
+  const [authStatus, setAuthStatus] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [serverTrips, setServerTrips] = useState<TripSummary[]>([]);
+  const [guestTrips, setGuestTrips] = useState<GuestTripSnapshot[]>([]);
+  const [activeTripId, setActiveTripId] = useState<string | null>(null);
+  const [activeGuestTripId, setActiveGuestTripId] = useState<string | null>(null);
+  const [tripStatus, setTripStatus] = useState<string | null>(null);
+  const [loadingTrips, setLoadingTrips] = useState(false);
+  const [creatingNewTrip, setCreatingNewTrip] = useState(false);
   const receiptImageRef = useRef<HTMLImageElement | null>(null);
   const expenseDescriptionRef = useRef<HTMLInputElement | null>(null);
   const totalTravelersInputRef = useRef<HTMLInputElement | null>(null);
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     totalTravelersInputRef.current?.focus();
   }, []);
+
+  const resetTripState = () => {
+    setTotalPeople(0);
+    setPayers([]);
+    setTravelerNames([]);
+    setAllPeople([]);
+    setExpenses([]);
+    setSettlements([]);
+    setShowResults(false);
+    setFoodOrders({});
+    setReceiptHistory([]);
+    setReceiptHistoryStatus(null);
+  };
+
+  const buildAutoTripName = () => {
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const time = now.toTimeString().slice(0, 5).replace(':', '-');
+    return `Trip ${date} ${time}`;
+  };
+
+  const toGuestSnapshot = (id: string, existingName?: string): GuestTripSnapshot => ({
+    id,
+    name: existingName || buildAutoTripName(),
+    updatedAt: new Date().toISOString(),
+    totalPeople,
+    travelerNames,
+    payers,
+    expenses,
+    settlements,
+    receiptHistory,
+  });
+
+  const loadTripDetails = async (trip: TripSummary) => {
+    setActiveTripId(trip.id);
+    localStorage.setItem(STORAGE_KEYS.activeTripId, trip.id);
+
+    const members = trip.members && typeof trip.members === 'object' ? trip.members as Record<string, unknown> : null;
+    const memberTotal = Number(members?.totalPeople || 0);
+    const memberTravelers = Array.isArray(members?.travelerNames) ? members?.travelerNames as string[] : [];
+    const memberPayers = Array.isArray(members?.payers) ? members?.payers as string[] : [];
+
+    if (memberTotal > 0) {
+      setTotalPeople(memberTotal);
+      // Keep all traveler names (ensure at least memberTotal slots)
+      const travelersToSet = [...memberTravelers];
+      while (travelersToSet.length < memberTotal) {
+        travelersToSet.push('');
+      }
+      setTravelerNames(travelersToSet.slice(0, memberTotal));
+      // Keep all payers - do NOT slice to memberTotal
+      setPayers(memberPayers);
+    } else {
+      // Ensure no stale member state is carried over between trips
+      setTotalPeople(0);
+      setTravelerNames([]);
+      setPayers([]);
+    }
+
+    const expenseResult = await listTripExpensesApi(trip.id);
+    if (expenseResult.status === 'success') {
+      const mappedExpenses: Expense[] = expenseResult.expenses.map((expense) => ({
+        id: expense.id,
+        description: expense.description,
+        amount: Number(expense.amount),
+        paidBy: expense.paid_by,
+        type: expense.type,
+        foodOrders: expense.food_orders || undefined,
+      }));
+      setExpenses(mappedExpenses);
+      // Auto-calculate settlements after loading expenses
+      calculateSettlements();
+    } else {
+      setExpenses([]);
+      setSettlements([]);
+      setTripStatus(expenseResult.message || 'Could not load trip expenses.');
+    }
+
+    await loadReceiptHistory();
+  };
+
+  const loadServerTrips = async () => {
+    setLoadingTrips(true);
+    const result = await listTripsApi();
+    if (result.status === 'success') {
+      setServerTrips(result.trips);
+      setTripStatus(null);
+    } else {
+      setServerTrips([]);
+      setTripStatus(result.message || 'Could not load trips.');
+    }
+    setLoadingTrips(false);
+  };
+
+  const createAndActivateTrip = async (membersOverride?: {
+    totalPeople: number;
+    travelerNames: string[];
+    payers: string[];
+  }) => {
+    const membersPayload = membersOverride ?? {
+      totalPeople,
+      travelerNames,
+      payers,
+    };
+    const result = await createTripApi(buildAutoTripName(), membersPayload);
+    if (result.status === 'success' && result.trip) {
+      const tripsResult = await listTripsApi();
+      if (tripsResult.status === 'success') {
+        setServerTrips(tripsResult.trips);
+      }
+      await loadTripDetails(result.trip);
+      setTripStatus('New trip created and selected.');
+      return;
+    }
+    setTripStatus(result.message || 'Could not create trip.');
+  };
+
+  useEffect(() => {
+    const savedMode = localStorage.getItem(STORAGE_KEYS.mode) as SessionMode;
+    if (savedMode === 'user') {
+      const token = localStorage.getItem(STORAGE_KEYS.token);
+      const savedUser = localStorage.getItem(STORAGE_KEYS.user);
+      if (!token || !savedUser) {
+        localStorage.removeItem(STORAGE_KEYS.mode);
+        return;
+      }
+
+      try {
+        const parsedUser = JSON.parse(savedUser) as AuthUser;
+        setCurrentUser(parsedUser);
+        setSessionMode('user');
+        setAuthView('choice');
+      } catch {
+        localStorage.removeItem(STORAGE_KEYS.mode);
+        localStorage.removeItem(STORAGE_KEYS.user);
+        localStorage.removeItem(STORAGE_KEYS.token);
+      }
+      return;
+    }
+
+    if (savedMode === 'guest') {
+      setSessionMode('guest');
+      const storedTripsRaw = localStorage.getItem(STORAGE_KEYS.guestTrips);
+      const parsedTrips = storedTripsRaw ? JSON.parse(storedTripsRaw) as GuestTripSnapshot[] : [];
+      setGuestTrips(parsedTrips);
+
+      if (parsedTrips.length > 0) {
+        const savedActiveId = localStorage.getItem(STORAGE_KEYS.guestActiveTripId);
+        const selected = parsedTrips.find((trip) => trip.id === savedActiveId) || parsedTrips[0];
+        setActiveGuestTripId(selected.id);
+        setTotalPeople(selected.totalPeople);
+        setTravelerNames(selected.travelerNames || []);
+        setPayers(selected.payers || []);
+        setExpenses(selected.expenses || []);
+        setSettlements(selected.settlements || []);
+        setReceiptHistory(selected.receiptHistory || []);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (sessionMode !== 'user' || !currentUser) {
+      return;
+    }
+
+    const bootUserSession = async () => {
+      await loadServerTrips();
+      const currentTrips = await listTripsApi();
+      if (currentTrips.status !== 'success') {
+        return;
+      }
+
+      const savedTripId = localStorage.getItem(STORAGE_KEYS.activeTripId);
+      const selectedTrip = currentTrips.trips.find((trip) => trip.id === savedTripId) || currentTrips.trips[0];
+
+      if (selectedTrip) {
+        await loadTripDetails(selectedTrip);
+      } else {
+        await createAndActivateTrip({
+          totalPeople: 0,
+          travelerNames: [],
+          payers: [],
+        });
+      }
+    };
+
+    bootUserSession();
+  }, [sessionMode, currentUser]);
+
+  useEffect(() => {
+    if (sessionMode !== 'guest' || !activeGuestTripId) {
+      return;
+    }
+
+    const snapshot = toGuestSnapshot(activeGuestTripId, guestTrips.find((trip) => trip.id === activeGuestTripId)?.name);
+    setGuestTrips((currentTrips) => {
+      const existing = currentTrips.find((trip) => trip.id === activeGuestTripId);
+      const nextTrips = existing
+        ? currentTrips.map((trip) => (trip.id === activeGuestTripId ? snapshot : trip))
+        : [snapshot, ...currentTrips];
+      localStorage.setItem(STORAGE_KEYS.guestTrips, JSON.stringify(nextTrips));
+      return nextTrips;
+    });
+  }, [
+    sessionMode,
+    activeGuestTripId,
+    totalPeople,
+    travelerNames,
+    payers,
+    expenses,
+    settlements,
+    receiptHistory,
+  ]);
+
+  useEffect(() => {
+    if (sessionMode !== null || authView === 'choice' || !googleButtonRef.current) {
+      return;
+    }
+
+    if (!GOOGLE_CLIENT_ID) {
+      setAuthStatus('Google Sign-In is not configured. Set VITE_GOOGLE_CLIENT_ID in your frontend .env file.');
+      return;
+    }
+
+    const renderGoogleButton = () => {
+      if (!window.google?.accounts?.id || !googleButtonRef.current) {
+        return;
+      }
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (response: { credential?: string }) => {
+          if (!response.credential) {
+            setAuthStatus('Google sign-in did not return a token.');
+            return;
+          }
+
+          setAuthLoading(true);
+          const result = await loginWithGoogleIdToken(response.credential);
+          setAuthLoading(false);
+
+          if (result.status === 'success' && result.token && result.user) {
+            localStorage.setItem(STORAGE_KEYS.mode, 'user');
+            localStorage.setItem(STORAGE_KEYS.token, result.token);
+            localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result.user));
+            setCurrentUser(result.user);
+            setSessionMode('user');
+            setAuthStatus(null);
+            return;
+          }
+
+          setAuthStatus(result.message || 'Google login failed.');
+        },
+      });
+
+      googleButtonRef.current.innerHTML = '';
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        width: 280,
+        text: 'signin_with',
+      });
+    };
+
+    if (!document.getElementById('google-gsi-script')) {
+      const script = document.createElement('script');
+      script.id = 'google-gsi-script';
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = renderGoogleButton;
+      document.head.appendChild(script);
+    } else {
+      renderGoogleButton();
+    }
+  }, [authView, sessionMode]);
 
   // Update all people list when total people changes
   useEffect(() => {
@@ -130,6 +460,24 @@ function App() {
       return resized;
     });
   }, [totalPeople]);
+
+  useEffect(() => {
+    if (sessionMode !== 'user' || !activeTripId) {
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      await updateTripApi(activeTripId, {
+        members: {
+          totalPeople,
+          travelerNames,
+          payers,
+        },
+      });
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [sessionMode, activeTripId, totalPeople, travelerNames, payers]);
 
   const filledTravelerNames = travelerNames
     .map((name) => name.trim())
@@ -187,6 +535,19 @@ function App() {
   }, []);
 
   const loadReceiptHistory = async () => {
+    if (sessionMode === 'guest') {
+      const activeGuestTrip = guestTrips.find((trip) => trip.id === activeGuestTripId);
+      setReceiptHistory(activeGuestTrip?.receiptHistory || []);
+      setReceiptHistoryStatus(null);
+      return;
+    }
+
+    if (sessionMode !== 'user' || !activeTripId) {
+      setReceiptHistory([]);
+      setReceiptHistoryStatus('History is available after selecting a trip.');
+      return;
+    }
+
     setLoadingReceiptHistory(true);
     const response = await listTripReceipts();
 
@@ -200,10 +561,6 @@ function App() {
 
     setLoadingReceiptHistory(false);
   };
-
-  useEffect(() => {
-    loadReceiptHistory();
-  }, []);
 
   // Add a new payer
   const addPayer = () => {
@@ -258,6 +615,156 @@ function App() {
       updated[index] = name;
       return updated;
     });
+  };
+
+  const applyAuthSuccess = (token: string, user: AuthUser) => {
+    localStorage.setItem(STORAGE_KEYS.mode, 'user');
+    localStorage.setItem(STORAGE_KEYS.token, token);
+    localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(user));
+    setCurrentUser(user);
+    setSessionMode('user');
+    setAuthStatus(null);
+  };
+
+  const handleAuthSubmit = async () => {
+    setAuthLoading(true);
+    setAuthStatus(null);
+
+    if (authView === 'login') {
+      const result = await loginWithEmail({
+        email: authForm.email.trim(),
+        password: authForm.password,
+      });
+      setAuthLoading(false);
+      if (result.status === 'success' && result.token && result.user) {
+        applyAuthSuccess(result.token, result.user);
+      } else {
+        setAuthStatus(result.message || 'Login failed');
+      }
+      return;
+    }
+
+    if (authView === 'signup') {
+      const result = await registerWithEmail({
+        name: authForm.name.trim(),
+        email: authForm.email.trim(),
+        password: authForm.password,
+      });
+      setAuthLoading(false);
+      if (result.status === 'success' && result.token && result.user) {
+        applyAuthSuccess(result.token, result.user);
+      } else {
+        setAuthStatus(result.message || 'Signup failed');
+      }
+      return;
+    }
+
+    setAuthLoading(false);
+  };
+
+  const enterGuestMode = () => {
+    localStorage.setItem(STORAGE_KEYS.mode, 'guest');
+    setSessionMode('guest');
+    setCurrentUser(null);
+    localStorage.removeItem(STORAGE_KEYS.token);
+    localStorage.removeItem(STORAGE_KEYS.user);
+    localStorage.removeItem(STORAGE_KEYS.activeTripId);
+
+    const storedTripsRaw = localStorage.getItem(STORAGE_KEYS.guestTrips);
+    const parsedTrips = storedTripsRaw ? JSON.parse(storedTripsRaw) as GuestTripSnapshot[] : [];
+    if (parsedTrips.length > 0) {
+      setGuestTrips(parsedTrips);
+      const selected = parsedTrips[0];
+      setActiveGuestTripId(selected.id);
+      localStorage.setItem(STORAGE_KEYS.guestActiveTripId, selected.id);
+      setTotalPeople(selected.totalPeople);
+      setTravelerNames(selected.travelerNames || []);
+      setPayers(selected.payers || []);
+      setExpenses(selected.expenses || []);
+      setSettlements(selected.settlements || []);
+      setReceiptHistory(selected.receiptHistory || []);
+      return;
+    }
+
+    resetTripState();
+    const newId = crypto.randomUUID();
+    setActiveGuestTripId(newId);
+    localStorage.setItem(STORAGE_KEYS.guestActiveTripId, newId);
+    setGuestTrips([]);
+  };
+
+  const handleLogout = () => {
+    setSessionMode(null);
+    setCurrentUser(null);
+    setActiveTripId(null);
+    setActiveGuestTripId(null);
+    setServerTrips([]);
+    setAuthView('choice');
+    setAuthForm({ name: '', email: '', password: '' });
+    setAuthStatus(null);
+    localStorage.removeItem(STORAGE_KEYS.mode);
+    localStorage.removeItem(STORAGE_KEYS.token);
+    localStorage.removeItem(STORAGE_KEYS.user);
+    localStorage.removeItem(STORAGE_KEYS.activeTripId);
+    localStorage.removeItem(STORAGE_KEYS.guestActiveTripId);
+    resetTripState();
+  };
+
+  const handleCreateNewTrip = async () => {
+    if (creatingNewTrip) {
+      return;
+    }
+
+    setCreatingNewTrip(true);
+    try {
+      if (sessionMode === 'user') {
+        resetTripState();
+        await createAndActivateTrip({
+          totalPeople: 0,
+          travelerNames: [],
+          payers: [],
+        });
+        return;
+      }
+
+      if (sessionMode === 'guest') {
+        resetTripState();
+        const newId = crypto.randomUUID();
+        setActiveGuestTripId(newId);
+        localStorage.setItem(STORAGE_KEYS.guestActiveTripId, newId);
+        setTripStatus('New guest trip started.');
+      }
+    } finally {
+      setCreatingNewTrip(false);
+    }
+  };
+
+  const handleSwitchServerTrip = async (tripId: string) => {
+    const selectedTrip = serverTrips.find((trip) => trip.id === tripId);
+    if (!selectedTrip) {
+      return;
+    }
+
+    resetTripState();
+    await loadTripDetails(selectedTrip);
+    setTripStatus(`Loaded ${selectedTrip.name}`);
+  };
+
+  const handleSwitchGuestTrip = (tripId: string) => {
+    const selectedTrip = guestTrips.find((trip) => trip.id === tripId);
+    if (!selectedTrip) {
+      return;
+    }
+
+    setActiveGuestTripId(selectedTrip.id);
+    localStorage.setItem(STORAGE_KEYS.guestActiveTripId, selectedTrip.id);
+    setTotalPeople(selectedTrip.totalPeople);
+    setTravelerNames(selectedTrip.travelerNames || []);
+    setPayers(selectedTrip.payers || []);
+    setExpenses(selectedTrip.expenses || []);
+    setSettlements(selectedTrip.settlements || []);
+    setReceiptHistory(selectedTrip.receiptHistory || []);
+    setTripStatus(`Loaded ${selectedTrip.name}`);
   };
 
   // Update food order amount
@@ -654,28 +1161,54 @@ function App() {
       setReceiptItems(detectedItems);
       setOriginalReceiptItems(detectedItems);
 
-      const savedReceipt = await createTripReceipt({
-        imageUrl: receiptImage.name,
-        ocrStatus: 'parsed',
-        ocrText: text,
-        ocrConfidence,
-        parserConfidence: parseResult.status === 'success' ? parseResult.confidence : null,
-        modelVersion: parseResult.status === 'success'
-          ? `${parseResult.model}${usedLocalFallback ? '+local-ocr' : ''}`
-          : 'local-fallback-parser',
-        parsedItems: detectedItems.map((item) => ({
-          name: item.name,
-          amount: item.amount,
-          assignedTo: item.assignedTo,
-        })),
-      });
+      if (sessionMode === 'user') {
+        const savedReceipt = await createTripReceipt({
+          imageUrl: receiptImage.name,
+          ocrStatus: 'parsed',
+          ocrText: text,
+          ocrConfidence,
+          parserConfidence: parseResult.status === 'success' ? parseResult.confidence : null,
+          modelVersion: parseResult.status === 'success'
+            ? `${parseResult.model}${usedLocalFallback ? '+local-ocr' : ''}`
+            : 'local-fallback-parser',
+          parsedItems: detectedItems.map((item) => ({
+            name: item.name,
+            amount: item.amount,
+            assignedTo: item.assignedTo,
+          })),
+        });
 
-      if (savedReceipt.status === 'success') {
-        setSavedReceiptId(savedReceipt.receiptId || null);
-        setReceiptPersistenceStatus('Receipt scan saved to trip history.');
-        await loadReceiptHistory();
+        if (savedReceipt.status === 'success') {
+          setSavedReceiptId(savedReceipt.receiptId || null);
+          setReceiptPersistenceStatus('Receipt scan saved to trip history.');
+          await loadReceiptHistory();
+        } else {
+          setReceiptPersistenceStatus(savedReceipt.message || 'Receipt not saved to trip history.');
+        }
       } else {
-        setReceiptPersistenceStatus(savedReceipt.message || 'Receipt not saved to trip history.');
+        const localReceiptId = `guest-receipt-${Date.now()}`;
+        setSavedReceiptId(localReceiptId);
+        const localReceipt: StoredTripReceipt = {
+          id: localReceiptId,
+          trip_id: activeGuestTripId || 'guest',
+          image_url: receiptImage.name,
+          ocr_status: 'parsed',
+          ocr_text: text,
+          ocr_confidence: ocrConfidence,
+          parser_confidence: parseResult.status === 'success' ? parseResult.confidence : null,
+          model_version: parseResult.status === 'success'
+            ? `${parseResult.model}${usedLocalFallback ? '+local-ocr' : ''}`
+            : 'local-fallback-parser',
+          parsed_items: detectedItems.map((item) => ({
+            name: item.name,
+            amount: item.amount,
+            assignedTo: item.assignedTo,
+          })),
+          created_at: new Date().toISOString(),
+        };
+
+        setReceiptHistory((current) => [localReceipt, ...current]);
+        setReceiptPersistenceStatus('Receipt scan saved to guest local history only.');
       }
 
       setMlStatus((currentStatus: ModelStatus | null) => {
@@ -788,7 +1321,7 @@ function App() {
         setOriginalReceiptItems(receiptItems);
         setOriginalDetectedReceiptTotal(detectedReceiptTotal);
 
-        if (savedReceiptId) {
+        if (savedReceiptId && sessionMode === 'user') {
           const updatedReceipt = await updateTripReceipt(savedReceiptId, {
             ocrStatus: 'reviewed',
             parsedItems: receiptItems.map((item) => ({
@@ -804,6 +1337,23 @@ function App() {
           } else {
             setReceiptPersistenceStatus(updatedReceipt.message || 'Could not sync reviewed receipt to trip history.');
           }
+        } else if (savedReceiptId && sessionMode === 'guest') {
+          setReceiptHistory((current) =>
+            current.map((receipt) =>
+              receipt.id === savedReceiptId
+                ? {
+                    ...receipt,
+                    ocr_status: 'reviewed',
+                    parsed_items: receiptItems.map((item) => ({
+                      name: item.name,
+                      amount: item.amount,
+                      assignedTo: item.assignedTo,
+                    })),
+                  }
+                : receipt
+            )
+          );
+          setReceiptPersistenceStatus('Receipt review synced to guest local history.');
         }
       } else {
         setFeedbackStatus(response.error || response.message || 'Could not save corrections.');
@@ -880,7 +1430,7 @@ function App() {
   };
 
   // Add expense
-  const addExpense = () => {
+  const addExpense = async () => {
     if (newExpense.description && newExpense.amount && newExpense.paidBy) {
       const expense: Expense = {
         id: Date.now().toString(),
@@ -911,8 +1461,27 @@ function App() {
         }
       }
 
-      setExpenses([...expenses, expense]);
+      const nextExpenses = [...expenses, expense];
+      setExpenses(nextExpenses);
+
+      if (sessionMode === 'user' && activeTripId) {
+        const result = await createTripExpenseApi(activeTripId, {
+          description: expense.description,
+          amount: expense.amount,
+          paidBy: expense.paidBy,
+          type: expense.type,
+          foodOrders: expense.foodOrders,
+        });
+
+        if (result.status !== 'success') {
+          setTripStatus(result.message || 'Expense saved locally, but failed to sync to server.');
+        }
+      }
+
       setNewExpense({ description: '', amount: '', paidBy: '', type: 'regular' });
+      
+      // Auto-calculate settlements after adding expense
+      calculateSettlements();
       
       // Clear food orders for next expense
       const clearedOrders: { [person: string]: string } = {};
@@ -1070,6 +1639,95 @@ function App() {
     return Object.values(foodOrders).reduce((sum, amount) => sum + (parseFloat(amount) || 0), 0);
   };
 
+  if (sessionMode === null) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4 flex items-center justify-center">
+        <div className="w-full max-w-md bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">Travel Expense Manager</h1>
+          <p className="text-sm text-gray-600 mb-6 text-center">Login to save trip history on server, or continue as guest with local-only history.</p>
+
+          {authView === 'choice' && (
+            <div className="space-y-3">
+              <button
+                onClick={() => setAuthView('login')}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+              >
+                <LogIn className="w-4 h-4" />
+                Login
+              </button>
+              <button
+                onClick={() => setAuthView('signup')}
+                className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
+              >
+                <UserPlus className="w-4 h-4" />
+                Sign Up
+              </button>
+              <button
+                onClick={enterGuestMode}
+                className="w-full px-4 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+              >
+                <User className="w-4 h-4" />
+                Continue as Guest
+              </button>
+            </div>
+          )}
+
+          {(authView === 'login' || authView === 'signup') && (
+            <div className="space-y-3">
+              {authView === 'signup' && (
+                <input
+                  type="text"
+                  placeholder="Name"
+                  value={authForm.name}
+                  onChange={(e) => setAuthForm((current) => ({ ...current, name: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              )}
+              <input
+                type="email"
+                placeholder="Email"
+                value={authForm.email}
+                onChange={(e) => setAuthForm((current) => ({ ...current, email: e.target.value }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={authForm.password}
+                onChange={(e) => setAuthForm((current) => ({ ...current, password: e.target.value }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+
+              <button
+                onClick={handleAuthSubmit}
+                disabled={authLoading}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-60"
+              >
+                {authLoading ? 'Please wait...' : authView === 'login' ? 'Login' : 'Create Account'}
+              </button>
+
+              <div className="pt-1">
+                <div ref={googleButtonRef} className="flex justify-center" />
+              </div>
+
+              <button
+                onClick={() => {
+                  setAuthView('choice');
+                  setAuthStatus(null);
+                }}
+                className="w-full px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+              >
+                Back
+              </button>
+            </div>
+          )}
+
+          {authStatus && <p className="mt-3 text-sm text-red-600">{authStatus}</p>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
       <div className="max-w-4xl mx-auto">
@@ -1090,6 +1748,132 @@ function App() {
             <h1 className="text-4xl font-bold text-gray-800 mb-2">Travel Expense Manager</h1>
             <p className="text-gray-600">Split expenses fairly among travelers with individual food tracking</p>
           </div>
+        </div>
+
+        <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 shadow-xl border border-white/20 mb-6">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:justify-between">
+            <div className="text-sm text-gray-700">
+              {sessionMode === 'user' ? (
+                <span>Signed in as <strong>{currentUser?.name}</strong> ({currentUser?.email})</span>
+              ) : (
+                <span>Guest mode: history is stored only in this browser.</span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {sessionMode === 'user' ? (
+                <>
+                  <select
+                    value={activeTripId || ''}
+                    onChange={(e) => handleSwitchServerTrip(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    disabled={loadingTrips || serverTrips.length === 0}
+                  >
+                    {serverTrips.map((trip) => (
+                      <option key={trip.id} value={trip.id}>{trip.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleCreateNewTrip}
+                    disabled={creatingNewTrip}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {creatingNewTrip ? 'Creating...' : 'New Trip'}
+                  </button>
+                  <button
+                    onClick={loadServerTrips}
+                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all"
+                  >
+                    Refresh Trips
+                  </button>
+                </>
+              ) : (
+                <>
+                  <select
+                    value={activeGuestTripId || ''}
+                    onChange={(e) => handleSwitchGuestTrip(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    disabled={guestTrips.length === 0}
+                  >
+                    {guestTrips.map((trip) => (
+                      <option key={trip.id} value={trip.id}>{trip.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleCreateNewTrip}
+                    disabled={creatingNewTrip}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {creatingNewTrip ? 'Creating...' : 'New Guest Trip'}
+                  </button>
+                </>
+              )}
+
+              <button
+                onClick={handleLogout}
+                className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-100 transition-all flex items-center gap-1"
+              >
+                <LogOut className="w-4 h-4" />
+                Exit
+              </button>
+            </div>
+          </div>
+          {tripStatus && <p className="mt-2 text-sm text-gray-700">{tripStatus}</p>}
+        </div>
+
+        <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+          <h2 className="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
+            <History className="w-5 h-5 text-indigo-600" />
+            Past Trips
+          </h2>
+
+          {sessionMode === 'user' ? (
+            serverTrips.length === 0 ? (
+              <p className="text-sm text-gray-600">No saved trips yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {serverTrips.map((trip) => (
+                  <button
+                    key={trip.id}
+                    onClick={() => handleSwitchServerTrip(trip.id)}
+                    className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+                      activeTripId === trip.id
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
+                        : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{trip.name}</span>
+                      <span className="text-xs text-gray-500">{new Date(trip.created_at).toLocaleString()}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
+          ) : (
+            guestTrips.length === 0 ? (
+              <p className="text-sm text-gray-600">No guest trips yet. Start one and it will be kept in browser storage only.</p>
+            ) : (
+              <div className="space-y-2">
+                {guestTrips.map((trip) => (
+                  <button
+                    key={trip.id}
+                    onClick={() => handleSwitchGuestTrip(trip.id)}
+                    className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+                      activeGuestTripId === trip.id
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
+                        : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{trip.name}</span>
+                      <span className="text-xs text-gray-500">{new Date(trip.updatedAt).toLocaleString()}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
+          )}
         </div>
 
         {/* Setup Section */}

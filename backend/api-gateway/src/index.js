@@ -34,23 +34,22 @@ app.get('/health', async (_req, res) => {
   res.status(allUp ? 200 : 503).json({ status: allUp ? 'ok' : 'degraded', services });
 });
 
-app.use(
-  '/api/app',
-  createProxyMiddleware({
-    target: appServiceUrl,
-    changeOrigin: true,
-    pathRewrite: (path) => `/api${path}`
-  })
-);
+const appProxy = createProxyMiddleware({
+  target: appServiceUrl,
+  changeOrigin: true,
+  onError: (err, req, res) => {
+    console.error(`Proxy error for ${req.method} ${req.path}:`, err.message);
+    res.status(503).json({ error: 'Service unavailable' });
+  }
+});
 
-app.use(
-  '/api/ml',
-  createProxyMiddleware({
-    target: mlServiceUrl,
-    changeOrigin: true,
-    pathRewrite: (path) => `/api/ml${path}`
-  })
-);
+const mlProxy = createProxyMiddleware({
+  target: mlServiceUrl,
+  changeOrigin: true
+});
+
+app.use('/api/ml', mlProxy);
+app.use('/api', appProxy);
 
 app.listen(port, () => {
   console.log(`API gateway listening on http://localhost:${port}`);
