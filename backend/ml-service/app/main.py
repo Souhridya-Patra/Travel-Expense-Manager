@@ -4,6 +4,7 @@ Updated FastAPI service with trained model integration.
 
 import os
 import logging
+import re
 from pathlib import Path
 from io import BytesIO
 from typing import Any
@@ -32,7 +33,7 @@ allowed_origins = [
     origin.strip()
     for origin in os.getenv(
         "ML_CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173,http://localhost:3000,http://127.0.0.1:3000",
     ).split(",")
     if origin.strip()
 ]
@@ -86,7 +87,63 @@ class OCRResponse(BaseModel):
 class ItemsResponse(BaseModel):
     status: str
     items: list[dict[str, Any]]
+    total: float | None = None
     confidence: float = 0.0
+
+
+def _extract_amount_candidates(text: str) -> list[float]:
+    matches = re.findall(r"(?<!\d)(?:\$|usd|eur|rs\.?|inr|myr|sgd)?\s*([0-9]{1,6}(?:[.,][0-9]{1,2})?)(?!\d)", text, flags=re.IGNORECASE)
+    values: list[float] = []
+    for match in matches:
+        cleaned = match.replace(",", "")
+        try:
+            value = float(cleaned)
+        except ValueError:
+            continue
+        if 0 < value < 1_000_000:
+            values.append(value)
+    return values
+
+
+def _extract_total_from_text(text: str) -> float | None:
+    if not text or not text.strip():
+        return None
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    preferred_keywords = [
+        "grand total",
+        "total paid",
+        "amount paid",
+        "amount due",
+        "total due",
+        "net amount",
+        "balance due",
+        "total",
+        "payable",
+    ]
+    disallowed_keywords = ["subtotal", "sub total", "tax", "vat", "gst", "cgst", "sgst", "service charge", "tip"]
+
+    for keyword in preferred_keywords:
+        for line in reversed(lines):
+            lower_line = line.lower()
+            if keyword not in lower_line:
+                continue
+            if any(token in lower_line for token in disallowed_keywords) and keyword == "total":
+                continue
+
+            amounts = _extract_amount_candidates(line)
+            if amounts:
+                return amounts[-1]
+
+    tail_lines = lines[-10:]
+    tail_amounts: list[float] = []
+    for line in tail_lines:
+        tail_amounts.extend(_extract_amount_candidates(line))
+
+    if tail_amounts:
+        return max(tail_amounts)
+
+    return None
 
 
 class RetrainRequest(BaseModel):
@@ -183,9 +240,24 @@ def parse_items(payload: ParseRequest) -> dict[str, Any]:
         if current_item and "name" in current_item:
             items.append(current_item)
 
+        detected_total = _extract_total_from_text(payload.text)
+
+        if detected_total is None:
+            parsed_prices = []
+            for label, value in entities:
+                if label != "PRICE":
+                    continue
+                try:
+                    parsed_prices.append(float(value.replace("$", "").replace(",", "").strip()))
+                except Exception:
+                    continue
+            if parsed_prices:
+                detected_total = max(parsed_prices)
+
         return {
             "status": "success",
             "items": items,
+            "total": detected_total,
             "confidence": 0.80,  # Placeholder
             "model": "bert-nerd-parser",
         }

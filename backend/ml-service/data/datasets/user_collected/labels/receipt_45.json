@@ -1,0 +1,226 @@
+{
+    "id": 45,
+    "annotations": [
+        {
+            "id": 45,
+            "completed_by": 1,
+            "result": [
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 12.713261029931097,
+                        "y": 48.01061007957559,
+                        "width": 28.97143864437288,
+                        "height": 7.186768744239025,
+                        "rotation": 358.25371837971437
+                    },
+                    "id": "vtgNeD-0tO",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 12.713261029931097,
+                        "y": 48.01061007957559,
+                        "width": 28.97143864437288,
+                        "height": 7.186768744239025,
+                        "rotation": 358.25371837971437,
+                        "labels": [
+                            "Item Name"
+                        ]
+                    },
+                    "id": "vtgNeD-0tO",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 12.713261029931097,
+                        "y": 48.01061007957559,
+                        "width": 28.97143864437288,
+                        "height": 7.186768744239025,
+                        "rotation": 358.25371837971437,
+                        "text": [
+                            "SOBE MOJITO'S BACARDI LIGHT"
+                        ]
+                    },
+                    "id": "vtgNeD-0tO",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 67.27433961671872,
+                        "y": 47.61273209549072,
+                        "width": 10.417811121749104,
+                        "height": 3.315649867374002,
+                        "rotation": 0
+                    },
+                    "id": "AHB8Wgp6vq",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 67.27433961671872,
+                        "y": 47.61273209549072,
+                        "width": 10.417811121749104,
+                        "height": 3.315649867374002,
+                        "rotation": 0,
+                        "labels": [
+                            "Price of Items"
+                        ]
+                    },
+                    "id": "AHB8Wgp6vq",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 67.27433961671872,
+                        "y": 47.61273209549072,
+                        "width": 10.417811121749104,
+                        "height": 3.315649867374002,
+                        "rotation": 0,
+                        "text": [
+                            "40.00"
+                        ]
+                    },
+                    "id": "AHB8Wgp6vq",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 67.45091268657887,
+                        "y": 76.52519893899205,
+                        "width": 11.136708621552376,
+                        "height": 2.7883018622849036,
+                        "rotation": 2.726310993906395
+                    },
+                    "id": "LQNxA-ymOc",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 67.45091268657887,
+                        "y": 76.52519893899205,
+                        "width": 11.136708621552376,
+                        "height": 2.7883018622849036,
+                        "rotation": 2.726310993906395,
+                        "labels": [
+                            "Total amount"
+                        ]
+                    },
+                    "id": "LQNxA-ymOc",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 67.45091268657887,
+                        "y": 76.52519893899205,
+                        "width": 11.136708621552376,
+                        "height": 2.7883018622849036,
+                        "rotation": 2.726310993906395,
+                        "text": [
+                            "43.60"
+                        ]
+                    },
+                    "id": "LQNxA-ymOc",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "from_id": "vtgNeD-0tO",
+                    "to_id": "AHB8Wgp6vq",
+                    "type": "relation",
+                    "direction": "right"
+                }
+            ],
+            "was_cancelled": false,
+            "ground_truth": false,
+            "created_at": "2026-03-21T19:05:53.500348Z",
+            "updated_at": "2026-03-21T19:05:53.500389Z",
+            "draft_created_at": "2026-03-21T19:04:10.549765Z",
+            "lead_time": 151.232,
+            "prediction": {},
+            "result_count": 4,
+            "unique_id": "9b513223-9871-47ac-95b9-81e090c7de84",
+            "import_id": null,
+            "last_action": null,
+            "bulk_created": false,
+            "task": 45,
+            "project": 1,
+            "updated_by": 1,
+            "parent_prediction": null,
+            "parent_annotation": null,
+            "last_created_by": null
+        }
+    ],
+    "file_upload": "55ff4c2a-1182-receipt.jpg",
+    "drafts": [],
+    "predictions": [],
+    "data": {
+        "ocr": "/data/upload/1/55ff4c2a-1182-receipt.jpg"
+    },
+    "meta": {},
+    "created_at": "2026-03-19T18:44:05.585516Z",
+    "updated_at": "2026-03-21T19:05:53.593845Z",
+    "allow_skip": true,
+    "inner_id": 45,
+    "total_annotations": 1,
+    "cancelled_annotations": 0,
+    "total_predictions": 0,
+    "comment_count": 0,
+    "unresolved_comment_count": 0,
+    "last_comment_updated_at": null,
+    "project": 1,
+    "updated_by": 1,
+    "comment_authors": []
+}

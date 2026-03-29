@@ -1,5 +1,7 @@
+import os
+
 import torch
-from transformers import AutoTokenizer, AutoModelForTokenClassification
+from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoConfig
 from typing import Optional, List, Tuple
 from pathlib import Path
 
@@ -39,6 +41,20 @@ class ItemParserModel:
         self.tokenizer = AutoTokenizer.from_pretrained(
             PARSER_MODEL_CONFIG["model_name"]
         )
+
+        # Workaround for Windows access-violation crashes observed when materializing
+        # pretrained safetensor weights with some torch/transformers/Python combos.
+        if os.environ.get("PARSER_INIT_FROM_SCRATCH", "0") == "1":
+            config = AutoConfig.from_pretrained(
+                PARSER_MODEL_CONFIG["model_name"],
+                num_labels=PARSER_MODEL_CONFIG["num_labels"],
+                id2label=self.LABEL_MAP,
+                label2id=self.LABEL_TO_ID,
+            )
+            self.model = AutoModelForTokenClassification.from_config(config).to(self.device)
+            print("✓ BERT model initialized from config (scratch weights)")
+            return
+
         self.model = AutoModelForTokenClassification.from_pretrained(
             PARSER_MODEL_CONFIG["model_name"],
             num_labels=PARSER_MODEL_CONFIG["num_labels"],

@@ -22,6 +22,7 @@ export interface ParsedItem {
 export interface ParseResult {
   status: 'success' | 'error';
   items: ParsedItem[];
+  total?: number | null;
   confidence: number;
   model: string;
   error?: string;

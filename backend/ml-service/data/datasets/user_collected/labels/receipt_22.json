@@ -1,0 +1,226 @@
+{
+    "id": 22,
+    "annotations": [
+        {
+            "id": 22,
+            "completed_by": 1,
+            "result": [
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 6.36604774535809,
+                        "y": 54.11140583554377,
+                        "width": 19.278222295268996,
+                        "height": 3.0304197562588455,
+                        "rotation": 1.0511807495437324
+                    },
+                    "id": "2zMjAoVPA2",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 6.36604774535809,
+                        "y": 54.11140583554377,
+                        "width": 19.278222295268996,
+                        "height": 3.0304197562588455,
+                        "rotation": 1.0511807495437324,
+                        "labels": [
+                            "Item Name"
+                        ]
+                    },
+                    "id": "2zMjAoVPA2",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 6.36604774535809,
+                        "y": 54.11140583554377,
+                        "width": 19.278222295268996,
+                        "height": 3.0304197562588455,
+                        "rotation": 1.0511807495437324,
+                        "text": [
+                            "SFT TACO BF"
+                        ]
+                    },
+                    "id": "2zMjAoVPA2",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 72.14854111405835,
+                        "y": 54.244031830238725,
+                        "width": 8.50462575166122,
+                        "height": 3.1768251834999104,
+                        "rotation": 356.4236656250026
+                    },
+                    "id": "314gTWLS-a",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 72.14854111405835,
+                        "y": 54.244031830238725,
+                        "width": 8.50462575166122,
+                        "height": 3.1768251834999104,
+                        "rotation": 356.4236656250026,
+                        "labels": [
+                            "Price of Items"
+                        ]
+                    },
+                    "id": "314gTWLS-a",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 72.14854111405835,
+                        "y": 54.244031830238725,
+                        "width": 8.50462575166122,
+                        "height": 3.1768251834999104,
+                        "rotation": 356.4236656250026,
+                        "text": [
+                            "5.99"
+                        ]
+                    },
+                    "id": "314gTWLS-a",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 65.25198938992042,
+                        "y": 71.22015915119363,
+                        "width": 16.2697497121294,
+                        "height": 3.1799528527723253,
+                        "rotation": 0.6227556872063928
+                    },
+                    "id": "wVoatTKgoU",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 65.25198938992042,
+                        "y": 71.22015915119363,
+                        "width": 16.2697497121294,
+                        "height": 3.1799528527723253,
+                        "rotation": 0.6227556872063928,
+                        "labels": [
+                            "Total amount"
+                        ]
+                    },
+                    "id": "wVoatTKgoU",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 300,
+                    "original_height": 400,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 65.25198938992042,
+                        "y": 71.22015915119363,
+                        "width": 16.2697497121294,
+                        "height": 3.1799528527723253,
+                        "rotation": 0.6227556872063928,
+                        "text": [
+                            "6.59"
+                        ]
+                    },
+                    "id": "wVoatTKgoU",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "from_id": "2zMjAoVPA2",
+                    "to_id": "314gTWLS-a",
+                    "type": "relation",
+                    "direction": "right"
+                }
+            ],
+            "was_cancelled": false,
+            "ground_truth": false,
+            "created_at": "2026-03-21T15:45:43.759220Z",
+            "updated_at": "2026-03-21T15:45:43.759259Z",
+            "draft_created_at": "2026-03-21T15:44:12.999285Z",
+            "lead_time": 114.473,
+            "prediction": {},
+            "result_count": 4,
+            "unique_id": "c6b7598f-442f-41e5-9f75-1ba752ad81db",
+            "import_id": null,
+            "last_action": null,
+            "bulk_created": false,
+            "task": 22,
+            "project": 1,
+            "updated_by": 1,
+            "parent_prediction": null,
+            "parent_annotation": null,
+            "last_created_by": null
+        }
+    ],
+    "file_upload": "1a312780-1159-receipt.jpg",
+    "drafts": [],
+    "predictions": [],
+    "data": {
+        "ocr": "/data/upload/1/1a312780-1159-receipt.jpg"
+    },
+    "meta": {},
+    "created_at": "2026-03-19T18:44:05.583865Z",
+    "updated_at": "2026-03-21T15:45:43.831893Z",
+    "allow_skip": true,
+    "inner_id": 22,
+    "total_annotations": 1,
+    "cancelled_annotations": 0,
+    "total_predictions": 0,
+    "comment_count": 0,
+    "unresolved_comment_count": 0,
+    "last_comment_updated_at": null,
+    "project": 1,
+    "updated_by": 1,
+    "comment_authors": []
+}

@@ -1,4 +1,19 @@
 const API_GATEWAY_URL = import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
+const API_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = API_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface TripReceiptItem {
   name: string;
@@ -67,7 +82,7 @@ export async function createTripReceipt(payload: SaveTripReceiptPayload): Promis
       };
     }
 
-    const response = await fetch(`${API_GATEWAY_URL}/api/app/trips/${tripId}/receipts`, {
+    const response = await fetchWithTimeout(`${API_GATEWAY_URL}/api/app/trips/${tripId}/receipts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -106,7 +121,7 @@ export async function updateTripReceipt(receiptId: string, payload: Partial<Save
       };
     }
 
-    const response = await fetch(`${API_GATEWAY_URL}/api/app/trips/${tripId}/receipts/${receiptId}`, {
+    const response = await fetchWithTimeout(`${API_GATEWAY_URL}/api/app/trips/${tripId}/receipts/${receiptId}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -146,7 +161,7 @@ export async function listTripReceipts(): Promise<ReceiptListApiResult> {
       };
     }
 
-    const response = await fetch(`${API_GATEWAY_URL}/api/app/trips/${tripId}/receipts`, {
+    const response = await fetchWithTimeout(`${API_GATEWAY_URL}/api/app/trips/${tripId}/receipts`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -168,10 +183,17 @@ export async function listTripReceipts(): Promise<ReceiptListApiResult> {
       receipts: Array.isArray(data?.receipts) ? data.receipts : [],
     };
   } catch (error) {
+    const message =
+      error instanceof DOMException && error.name === 'AbortError'
+        ? 'Request timed out. Backend may be unavailable.'
+        : error instanceof Error
+          ? error.message
+          : 'Unknown receipt list error';
+
     return {
       status: 'error',
       receipts: [],
-      message: error instanceof Error ? error.message : 'Unknown receipt list error',
+      message,
     };
   }
 }

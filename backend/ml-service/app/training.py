@@ -122,6 +122,169 @@ def load_feedback_parser_records(feedback_path: Path, max_samples: int = 256) ->
     return records
 
 
+def _normalize_label_name(label: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(label).lower())
+
+
+def _clean_number_text(value: str) -> str:
+    text = str(value).strip()
+    text = text.replace(",", "")
+    text = re.sub(r"[^0-9.\-]", "", text)
+    return text
+
+
+def _label_studio_task_to_parser_record(task: Dict[str, Any]) -> Optional[Tuple[str, List[Tuple[str, str]]]]:
+    annotations = task.get("annotations")
+    if not isinstance(annotations, list) or not annotations:
+        return None
+
+    first_annotation = annotations[0]
+    results = first_annotation.get("result")
+    if not isinstance(results, list) or not results:
+        return None
+
+    id_to_text: Dict[str, str] = {}
+    id_to_label: Dict[str, str] = {}
+    relations: List[Tuple[str, str]] = []
+
+    for entry in results:
+        if not isinstance(entry, dict):
+            continue
+        entry_type = entry.get("type")
+        entry_id = str(entry.get("id", ""))
+        value = entry.get("value") or {}
+
+        if entry_type == "textarea" and entry_id:
+            text_values = value.get("text")
+            if isinstance(text_values, list) and text_values:
+                text = str(text_values[0]).strip()
+                if text:
+                    id_to_text[entry_id] = text
+
+        if entry_type == "labels" and entry_id:
+            labels = value.get("labels")
+            if isinstance(labels, list) and labels:
+                id_to_label[entry_id] = _normalize_label_name(labels[0])
+
+        if entry_type == "relation":
+            from_id = str(entry.get("from_id", ""))
+            to_id = str(entry.get("to_id", ""))
+            if from_id and to_id:
+                relations.append((from_id, to_id))
+
+    item_ids = [k for k, v in id_to_label.items() if v in {"itemname", "item", "description"}]
+    price_ids = [k for k, v in id_to_label.items() if v in {"price", "priceofitems", "itemprice", "amount"}]
+    total_ids = [k for k, v in id_to_label.items() if v in {"total", "totalamount", "grandtotal"}]
+
+    linked_item_to_price: Dict[str, str] = {}
+    for src, dst in relations:
+        if src in item_ids and dst in price_ids:
+            linked_item_to_price[src] = dst
+        elif dst in item_ids and src in price_ids:
+            linked_item_to_price[dst] = src
+
+    entities: List[Tuple[str, str]] = []
+    tokens: List[str] = []
+
+    used_price_ids = set()
+    for item_id in item_ids:
+        item_text = id_to_text.get(item_id, "").strip()
+        if not item_text:
+            continue
+
+        entities.append(("ITEM", item_text))
+        tokens.append(item_text)
+
+        price_id = linked_item_to_price.get(item_id)
+        if price_id:
+            price_text = _clean_number_text(id_to_text.get(price_id, ""))
+            if price_text:
+                entities.append(("PRICE", price_text))
+                tokens.append(price_text)
+                used_price_ids.add(price_id)
+
+    for price_id in price_ids:
+        if price_id in used_price_ids:
+            continue
+        price_text = _clean_number_text(id_to_text.get(price_id, ""))
+        if price_text:
+            entities.append(("PRICE", price_text))
+            tokens.append(price_text)
+
+    for total_id in total_ids:
+        total_text = _clean_number_text(id_to_text.get(total_id, ""))
+        if total_text:
+            entities.append(("PRICE", total_text))
+            tokens.append(total_text)
+
+    if not entities:
+        return None
+
+    sentence = " ".join(tokens).strip()
+    if len(sentence) < 3:
+        return None
+
+    return sentence, entities
+
+
+def load_user_collected_parser_records(
+    labels_dir: Path,
+    max_samples: int = 256,
+) -> List[Tuple[str, List[Tuple[str, str]]]]:
+    records: List[Tuple[str, List[Tuple[str, str]]]] = []
+    if not labels_dir.exists():
+        return records
+
+    json_files = sorted(labels_dir.glob("*.json"))
+    for label_file in json_files:
+        try:
+            payload = json.loads(label_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        # Support both raw Label Studio task JSON and already-converted compact JSON.
+        parsed: Optional[Tuple[str, List[Tuple[str, str]]]] = None
+        if isinstance(payload, dict) and isinstance(payload.get("annotations"), list):
+            parsed = _label_studio_task_to_parser_record(payload)
+        elif isinstance(payload, dict):
+            items = payload.get("items")
+            total = payload.get("total")
+            entities: List[Tuple[str, str]] = []
+            tokens: List[str] = []
+
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    name = str(item.get("name", "")).strip()
+                    if name:
+                        entities.append(("ITEM", name))
+                        tokens.append(name)
+                    amount = item.get("amount")
+                    if amount is not None:
+                        amount_text = _clean_number_text(str(amount))
+                        if amount_text:
+                            entities.append(("PRICE", amount_text))
+                            tokens.append(amount_text)
+
+            if total is not None:
+                total_text = _clean_number_text(str(total))
+                if total_text:
+                    entities.append(("PRICE", total_text))
+                    tokens.append(total_text)
+
+            sentence = " ".join(tokens).strip()
+            if entities and len(sentence) >= 3:
+                parsed = (sentence, entities)
+
+        if parsed is not None:
+            records.append(parsed)
+        if len(records) >= max_samples:
+            break
+
+    return records
+
+
 class OCRTrainingPipeline:
     """Training pipeline for TrOCR receipt OCR model."""
 
@@ -404,13 +567,28 @@ class ItemParserTrainingPipeline:
             )
 
         cord_path = Path(dataset_paths.get("cord")) if dataset_paths.get("cord") else None
+        user_collected_path = (
+            Path(dataset_paths.get("user_collected")) if dataset_paths.get("user_collected") else None
+        )
         records: List[Tuple[str, List[Tuple[str, str]]]] = []
 
-        if cord_path and (cord_path / "hf_source.json").exists():
+        user_record_count = 0
+        if user_collected_path:
+            user_labels_dir = user_collected_path / "labels"
+            user_records = load_user_collected_parser_records(user_labels_dir, max_samples=max_samples)
+            if user_records:
+                records.extend(user_records)
+                user_record_count = len(user_records)
+                print(f"  Loaded user_collected parser records: {user_record_count}")
+
+        remaining_samples = max(0, max_samples - len(records))
+
+        cord_record_count = 0
+        if remaining_samples > 0 and cord_path and (cord_path / "hf_source.json").exists():
             metadata = json.loads((cord_path / "hf_source.json").read_text(encoding="utf-8"))
             dataset_id = metadata.get("dataset_id")
             if dataset_id:
-                ds = load_dataset(dataset_id, split=f"train[:{max_samples}]")
+                ds = load_dataset(dataset_id, split=f"train[:{remaining_samples}]")
                 for sample in ds:
                     annotation = sample.get("annotation")
                     if not annotation:
@@ -422,6 +600,12 @@ class ItemParserTrainingPipeline:
                     if len(sentence) < 4:
                         continue
                     records.append((sentence, entities))
+                    cord_record_count += 1
+
+        if cord_record_count:
+            print(f"  Loaded CORD parser records: {cord_record_count}")
+        if not user_record_count:
+            print("  No valid user_collected labels found; using available public dataset samples.")
 
         if len(records) < 8:
             records.extend(

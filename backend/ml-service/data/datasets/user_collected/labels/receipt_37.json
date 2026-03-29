@@ -1,0 +1,226 @@
+{
+    "id": 37,
+    "annotations": [
+        {
+            "id": 37,
+            "completed_by": 1,
+            "result": [
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 28.881144655532047,
+                        "y": 56.58409766431289,
+                        "width": 19.872583967692364,
+                        "height": 1.8921752187160326,
+                        "rotation": 1.6249763575248153
+                    },
+                    "id": "qSFSMnNJ5C",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 28.881144655532047,
+                        "y": 56.58409766431289,
+                        "width": 19.872583967692364,
+                        "height": 1.8921752187160326,
+                        "rotation": 1.6249763575248153,
+                        "labels": [
+                            "Item Name"
+                        ]
+                    },
+                    "id": "qSFSMnNJ5C",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 28.881144655532047,
+                        "y": 56.58409766431289,
+                        "width": 19.872583967692364,
+                        "height": 1.8921752187160326,
+                        "rotation": 1.6249763575248153,
+                        "text": [
+                            "DINNER RODIZIO"
+                        ]
+                    },
+                    "id": "qSFSMnNJ5C",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 62.97498371230647,
+                        "y": 57.218074010409936,
+                        "width": 6.909045950190721,
+                        "height": 2.2084528375089443,
+                        "rotation": 2.3373058591238873
+                    },
+                    "id": "cH3HR0_5T_",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 62.97498371230647,
+                        "y": 57.218074010409936,
+                        "width": 6.909045950190721,
+                        "height": 2.2084528375089443,
+                        "rotation": 2.3373058591238873,
+                        "labels": [
+                            "Price of Items"
+                        ]
+                    },
+                    "id": "cH3HR0_5T_",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 62.97498371230647,
+                        "y": 57.218074010409936,
+                        "width": 6.909045950190721,
+                        "height": 2.2084528375089443,
+                        "rotation": 2.3373058591238873,
+                        "text": [
+                            "41.95"
+                        ]
+                    },
+                    "id": "cH3HR0_5T_",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 61.98879828504439,
+                        "y": 69.05229913755477,
+                        "width": 7.3313654870414595,
+                        "height": 2.5259098963846167,
+                        "rotation": 2.2025981617660477
+                    },
+                    "id": "WeEoK3ZE3s",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 61.98879828504439,
+                        "y": 69.05229913755477,
+                        "width": 7.3313654870414595,
+                        "height": 2.5259098963846167,
+                        "rotation": 2.2025981617660477,
+                        "labels": [
+                            "Total amount"
+                        ]
+                    },
+                    "id": "WeEoK3ZE3s",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 750,
+                    "original_height": 1000,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 61.98879828504439,
+                        "y": 69.05229913755477,
+                        "width": 7.3313654870414595,
+                        "height": 2.5259098963846167,
+                        "rotation": 2.2025981617660477,
+                        "text": [
+                            "55.38"
+                        ]
+                    },
+                    "id": "WeEoK3ZE3s",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "from_id": "qSFSMnNJ5C",
+                    "to_id": "cH3HR0_5T_",
+                    "type": "relation",
+                    "direction": "right"
+                }
+            ],
+            "was_cancelled": false,
+            "ground_truth": false,
+            "created_at": "2026-03-21T18:21:56.704574Z",
+            "updated_at": "2026-03-21T18:21:56.704606Z",
+            "draft_created_at": "2026-03-21T18:20:14.143454Z",
+            "lead_time": 139.549,
+            "prediction": {},
+            "result_count": 4,
+            "unique_id": "58943835-9153-4894-ac28-82092d5eb4bf",
+            "import_id": null,
+            "last_action": null,
+            "bulk_created": false,
+            "task": 37,
+            "project": 1,
+            "updated_by": 1,
+            "parent_prediction": null,
+            "parent_annotation": null,
+            "last_created_by": null
+        }
+    ],
+    "file_upload": "ed69e395-1174-receipt.jpg",
+    "drafts": [],
+    "predictions": [],
+    "data": {
+        "ocr": "/data/upload/1/ed69e395-1174-receipt.jpg"
+    },
+    "meta": {},
+    "created_at": "2026-03-19T18:44:05.585004Z",
+    "updated_at": "2026-03-21T18:21:56.775654Z",
+    "allow_skip": true,
+    "inner_id": 37,
+    "total_annotations": 1,
+    "cancelled_annotations": 0,
+    "total_predictions": 0,
+    "comment_count": 0,
+    "unresolved_comment_count": 0,
+    "last_comment_updated_at": null,
+    "project": 1,
+    "updated_by": 1,
+    "comment_authors": []
+}

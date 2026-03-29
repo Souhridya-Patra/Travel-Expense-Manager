@@ -9,7 +9,13 @@ const port = Number(process.env.PORT || 8000);
 const appServiceUrl = process.env.APP_SERVICE_URL || 'http://localhost:8002';
 const mlServiceUrl = process.env.ML_SERVICE_URL || 'http://localhost:8001';
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
+const allowedOrigins = (process.env.CORS_ORIGIN ||
+  'http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({ origin: allowedOrigins }));
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 

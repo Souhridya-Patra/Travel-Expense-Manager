@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine } from 'lucide-react';
+import Tesseract from 'tesseract.js';
 import {
   analyzeReceiptOcr,
   checkModelStatus,
@@ -37,6 +38,13 @@ interface ReceiptItem {
   assignedTo?: string;
 }
 
+interface SelectionRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 const buildReceiptItems = (items: ParsedItem[]): ReceiptItem[] => {
   return items.map((item, index) => ({
     id: `${Date.now()}-${index}`,
@@ -62,6 +70,11 @@ function App() {
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
   const [originalReceiptItems, setOriginalReceiptItems] = useState<ReceiptItem[]>([]);
+  const [detectedReceiptTotal, setDetectedReceiptTotal] = useState<number | null>(null);
+  const [selectedAreaRect, setSelectedAreaRect] = useState<SelectionRect | null>(null);
+  const [isDrawingArea, setIsDrawingArea] = useState(false);
+  const [drawStartPoint, setDrawStartPoint] = useState<{ x: number; y: number } | null>(null);
+  const [selectedAreaStatus, setSelectedAreaStatus] = useState<string | null>(null);
   const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [mlStatus, setMlStatus] = useState<ModelStatus | null>(null);
@@ -70,6 +83,7 @@ function App() {
   const [receiptHistory, setReceiptHistory] = useState<StoredTripReceipt[]>([]);
   const [receiptHistoryStatus, setReceiptHistoryStatus] = useState<string | null>(null);
   const [loadingReceiptHistory, setLoadingReceiptHistory] = useState(false);
+  const receiptImageRef = useRef<HTMLImageElement | null>(null);
 
   // Update all people list when total people changes
   useEffect(() => {
@@ -273,6 +287,168 @@ function App() {
     return parseLines(false);
   };
 
+  const hasWeakOcrText = (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed.length < 20) return true;
+    if (!/\d/.test(trimmed)) return true;
+    if (trimmed.split(/\s+/).length < 4) return true;
+    return false;
+  };
+
+  const runLocalOcrFallback = async (file: File) => {
+    const result = await Tesseract.recognize(file, 'eng', {
+      logger: (message) => {
+        if (message.status === 'recognizing text' && typeof message.progress === 'number') {
+          const progress = Math.round(20 + message.progress * 70);
+          setOcrProgress(Math.min(progress, 95));
+        }
+      },
+    });
+
+    return result?.data?.text?.trim() || '';
+  };
+
+  const beginAreaSelection = (event: React.MouseEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    const bounds = container.getBoundingClientRect();
+    const x = event.clientX - bounds.left;
+    const y = event.clientY - bounds.top;
+
+    setDrawStartPoint({ x, y });
+    setSelectedAreaRect({ x, y, width: 0, height: 0 });
+    setIsDrawingArea(true);
+    setSelectedAreaStatus(null);
+  };
+
+  const updateAreaSelection = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawingArea || !drawStartPoint) return;
+    const container = event.currentTarget;
+    const bounds = container.getBoundingClientRect();
+    const currentX = event.clientX - bounds.left;
+    const currentY = event.clientY - bounds.top;
+
+    const x = Math.min(drawStartPoint.x, currentX);
+    const y = Math.min(drawStartPoint.y, currentY);
+    const width = Math.abs(currentX - drawStartPoint.x);
+    const height = Math.abs(currentY - drawStartPoint.y);
+
+    setSelectedAreaRect({ x, y, width, height });
+  };
+
+  const endAreaSelection = () => {
+    setIsDrawingArea(false);
+    setDrawStartPoint(null);
+    setSelectedAreaRect((current) => {
+      if (!current) return null;
+      if (current.width < 8 || current.height < 8) {
+        return null;
+      }
+      return current;
+    });
+  };
+
+  const extractTotalFromSelectedArea = async () => {
+    if (!receiptImage || !selectedAreaRect || !receiptImageRef.current) {
+      setSelectedAreaStatus('Draw a selection on the receipt image first.');
+      return;
+    }
+
+    const imageElement = receiptImageRef.current;
+    const displayWidth = imageElement.clientWidth;
+    const displayHeight = imageElement.clientHeight;
+    if (displayWidth <= 0 || displayHeight <= 0) {
+      setSelectedAreaStatus('Could not read image dimensions for selected area.');
+      return;
+    }
+
+    setSelectedAreaStatus('Reading selected area...');
+
+    try {
+      const imageBitmap = await createImageBitmap(receiptImage);
+
+      const scaleX = imageBitmap.width / displayWidth;
+      const scaleY = imageBitmap.height / displayHeight;
+      const sx = Math.max(0, Math.floor(selectedAreaRect.x * scaleX));
+      const sy = Math.max(0, Math.floor(selectedAreaRect.y * scaleY));
+      const sw = Math.max(1, Math.floor(selectedAreaRect.width * scaleX));
+      const sh = Math.max(1, Math.floor(selectedAreaRect.height * scaleY));
+
+      const cropWidth = Math.min(sw, imageBitmap.width - sx);
+      const cropHeight = Math.min(sh, imageBitmap.height - sy);
+      if (cropWidth <= 0 || cropHeight <= 0) {
+        setSelectedAreaStatus('Selected area is outside the image bounds.');
+        return;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        setSelectedAreaStatus('Could not initialize canvas for area extraction.');
+        return;
+      }
+
+      context.drawImage(imageBitmap, sx, sy, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+
+      const result = await Tesseract.recognize(canvas, 'eng');
+      const selectedText = result?.data?.text?.trim() || '';
+      const total = extractTotalFromTextLocal(selectedText);
+
+      if (typeof total === 'number' && Number.isFinite(total) && total > 0) {
+        setDetectedReceiptTotal(total);
+        setSelectedAreaStatus(`Detected total from selected area: $${total.toFixed(2)}`);
+      } else {
+        setSelectedAreaStatus('Could not detect a total from the selected area. Try drawing tighter around the final total line.');
+      }
+
+      if (selectedText && selectedText.length > 0) {
+        setOcrText((current) => {
+          if (!current || current.trim().length === 0) {
+            return selectedText;
+          }
+          return `${current}\n\n[Selected Area OCR]\n${selectedText}`;
+        });
+      }
+    } catch (error) {
+      setSelectedAreaStatus(error instanceof Error ? error.message : 'Failed to process selected area.');
+    }
+  };
+
+  const extractTotalFromTextLocal = (text: string): number | null => {
+    if (!text || !text.trim()) return null;
+
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const totalKeywords = ['grand total', 'total paid', 'amount paid', 'amount due', 'total due', 'net amount', 'balance due', 'total'];
+    const excludedTokens = ['subtotal', 'sub total', 'tax', 'vat', 'gst', 'cgst', 'sgst', 'service charge', 'tip'];
+
+    const extractAmounts = (line: string) => {
+      const matches = line.match(/[0-9]+(?:\.[0-9]{1,2})?/g) || [];
+      return matches
+        .map((token) => Number(token))
+        .filter((value) => Number.isFinite(value) && value > 0 && value < 100000);
+    };
+
+    for (const keyword of totalKeywords) {
+      for (const line of [...lines].reverse()) {
+        const lower = line.toLowerCase();
+        if (!lower.includes(keyword)) continue;
+        if (keyword === 'total' && excludedTokens.some((token) => lower.includes(token))) continue;
+        const amounts = extractAmounts(line);
+        if (amounts.length > 0) {
+          return amounts[amounts.length - 1];
+        }
+      }
+    }
+
+    const tailAmounts = lines.slice(-8).flatMap(extractAmounts);
+    if (tailAmounts.length > 0) {
+      return Math.max(...tailAmounts);
+    }
+
+    return null;
+  };
+
   const handleReceiptImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -285,6 +461,9 @@ function App() {
     setOcrText('');
     setReceiptItems([]);
     setOriginalReceiptItems([]);
+    setDetectedReceiptTotal(null);
+    setSelectedAreaRect(null);
+    setSelectedAreaStatus(null);
     setOcrStatus('idle');
     setOcrError(null);
     setFeedbackStatus(null);
@@ -302,17 +481,37 @@ function App() {
 
     try {
       setOcrProgress(20);
+      let text = '';
+      let usedLocalFallback = false;
+      let ocrConfidence = 0;
+
       const ocrResult = await analyzeReceiptOcr(receiptImage);
-      if (ocrResult.status === 'error') {
-        throw new Error(ocrResult.error || 'ANI OCR request failed');
+      if (ocrResult.status === 'success') {
+        text = ocrResult.text || '';
+        ocrConfidence = ocrResult.confidence || 0;
       }
 
-      const text = ocrResult.text || '';
+      if (hasWeakOcrText(text)) {
+        const fallbackText = await runLocalOcrFallback(receiptImage);
+        if (fallbackText && !hasWeakOcrText(fallbackText)) {
+          text = fallbackText;
+          usedLocalFallback = true;
+        }
+      }
+
+      if (!text || !text.trim()) {
+        throw new Error(ocrResult.error || 'Could not read text from the receipt image.');
+      }
+
       setOcrProgress(70);
       setOcrText(text);
 
       const parseResult = await parseReceiptItems(text);
       let detectedItems: ReceiptItem[] = [];
+      const parsedTotal =
+        typeof parseResult.total === 'number' && Number.isFinite(parseResult.total)
+          ? parseResult.total
+          : null;
 
       if (parseResult.status === 'success' && parseResult.items.length > 0) {
         detectedItems = buildReceiptItems(parseResult.items).map((item) => ({
@@ -323,6 +522,8 @@ function App() {
         detectedItems = parseReceiptText(text);
       }
 
+      setDetectedReceiptTotal(parsedTotal ?? extractTotalFromTextLocal(text));
+
       setReceiptItems(detectedItems);
       setOriginalReceiptItems(detectedItems);
 
@@ -330,9 +531,11 @@ function App() {
         imageUrl: receiptImage.name,
         ocrStatus: 'parsed',
         ocrText: text,
-        ocrConfidence: ocrResult.confidence,
+        ocrConfidence,
         parserConfidence: parseResult.status === 'success' ? parseResult.confidence : null,
-        modelVersion: parseResult.status === 'success' ? parseResult.model : 'local-fallback-parser',
+        modelVersion: parseResult.status === 'success'
+          ? `${parseResult.model}${usedLocalFallback ? '+local-ocr' : ''}`
+          : 'local-fallback-parser',
         parsedItems: detectedItems.map((item) => ({
           name: item.name,
           amount: item.amount,
@@ -358,6 +561,11 @@ function App() {
           parser_model: 'loaded',
         };
       });
+
+      if (usedLocalFallback) {
+        setReceiptPersistenceStatus('ANI OCR text was weak. Local OCR fallback was used for better extraction.');
+      }
+
       setOcrProgress(100);
       setOcrStatus('done');
     } catch (error) {
@@ -370,6 +578,7 @@ function App() {
   const handleParseReceiptText = () => {
     const parsedItems = parseReceiptText(ocrText);
     setReceiptItems(parsedItems);
+    setDetectedReceiptTotal(extractTotalFromTextLocal(ocrText));
     if (originalReceiptItems.length === 0) {
       setOriginalReceiptItems(parsedItems);
     }
@@ -444,7 +653,7 @@ function App() {
   };
 
   const applyParsedItemsToFoodExpense = () => {
-    if (receiptItems.length === 0) return;
+    if (receiptItems.length === 0 && !detectedReceiptTotal) return;
     const totalsByPerson: { [person: string]: number } = {};
     allPeople.forEach(person => {
       totalsByPerson[person] = 0;
@@ -456,13 +665,26 @@ function App() {
       }
     });
 
+    const extractedLineItemsTotal = Object.values(totalsByPerson).reduce((sum, value) => sum + value, 0);
+    const resolvedReceiptTotal =
+      detectedReceiptTotal && detectedReceiptTotal > 0
+        ? detectedReceiptTotal
+        : receiptItems.reduce((sum, item) => sum + item.amount, 0);
+
+    if (resolvedReceiptTotal > extractedLineItemsTotal && allPeople.length > 0) {
+      const sharedDelta = (resolvedReceiptTotal - extractedLineItemsTotal) / allPeople.length;
+      allPeople.forEach((person) => {
+        totalsByPerson[person] += sharedDelta;
+      });
+    }
+
     const updatedFoodOrders: { [person: string]: string } = {};
     allPeople.forEach(person => {
       const total = totalsByPerson[person];
       updatedFoodOrders[person] = total > 0 ? total.toFixed(2) : '';
     });
 
-    const totalAmount = receiptItems.reduce((sum, item) => sum + item.amount, 0);
+    const totalAmount = resolvedReceiptTotal;
     setNewExpense({
       description: 'Receipt - Food',
       amount: totalAmount > 0 ? totalAmount.toFixed(2) : '',
@@ -470,6 +692,24 @@ function App() {
       type: 'food'
     });
     setFoodOrders(updatedFoodOrders);
+  };
+
+  const applyDetectedAmountToExpense = () => {
+    const resolvedReceiptTotal =
+      detectedReceiptTotal && detectedReceiptTotal > 0
+        ? detectedReceiptTotal
+        : receiptItems.reduce((sum, item) => sum + item.amount, 0);
+
+    if (resolvedReceiptTotal <= 0) {
+      return;
+    }
+
+    setNewExpense({
+      description: '',
+      amount: resolvedReceiptTotal.toFixed(2),
+      paidBy: newExpense.paidBy || payers[0] || '',
+      type: 'regular',
+    });
   };
 
   // Add expense
@@ -587,6 +827,7 @@ function App() {
   const totalFoodExpenses = foodExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   const perPersonRegularShare = totalPeople > 0 ? totalRegularExpenses / totalPeople : 0;
   const receiptItemsTotal = receiptItems.reduce((sum, item) => sum + item.amount, 0);
+  const effectiveReceiptTotal = detectedReceiptTotal && detectedReceiptTotal > 0 ? detectedReceiptTotal : receiptItemsTotal;
   const assignedItemsTotal = receiptItems.reduce((sum, item) => sum + (item.assignedTo ? item.amount : 0), 0);
   const savedReceiptCount = receiptHistory.length;
   const savedParsedItemsCount = receiptHistory.reduce(
@@ -766,22 +1007,59 @@ function App() {
                   className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-purple-600 file:text-white hover:file:bg-purple-700"
                 />
                 {receiptPreviewUrl && (
-                  <img
-                    src={receiptPreviewUrl}
-                    alt="Receipt preview"
-                    className="mt-3 w-full max-h-64 object-contain rounded-lg border border-gray-200"
-                  />
+                  <div className="mt-3">
+                    <div
+                      className="relative inline-block border border-gray-200 rounded-lg overflow-hidden select-none"
+                      onMouseDown={beginAreaSelection}
+                      onMouseMove={updateAreaSelection}
+                      onMouseUp={endAreaSelection}
+                      onMouseLeave={endAreaSelection}
+                    >
+                      <img
+                        ref={receiptImageRef}
+                        src={receiptPreviewUrl}
+                        alt="Receipt preview"
+                        className="max-h-64 object-contain"
+                        draggable={false}
+                      />
+                      {selectedAreaRect && (
+                        <div
+                          className="absolute border-2 border-purple-500 bg-purple-500/10 pointer-events-none"
+                          style={{
+                            left: `${selectedAreaRect.x}px`,
+                            top: `${selectedAreaRect.y}px`,
+                            width: `${selectedAreaRect.width}px`,
+                            height: `${selectedAreaRect.height}px`,
+                          }}
+                        />
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-600">
+                      Tip: drag and draw around the bill&apos;s final total line, then click "Extract Total from Selected Area".
+                    </p>
+                  </div>
                 )}
                 <button
                   onClick={runOcr}
-                  disabled={!receiptImage || ocrStatus === 'running' || mlStatus?.status === 'error'}
+                  disabled={!receiptImage || ocrStatus === 'running'}
                   type="button"
                   className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {ocrStatus === 'running' ? 'Scanning...' : 'Run ANI OCR'}
                 </button>
+                <button
+                  onClick={extractTotalFromSelectedArea}
+                  disabled={!receiptImage || !selectedAreaRect}
+                  type="button"
+                  className="mt-3 ml-0 md:ml-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Extract Total from Selected Area
+                </button>
                 {ocrStatus === 'running' && (
                   <p className="mt-2 text-sm text-gray-600">Progress: {ocrProgress}%</p>
+                )}
+                {selectedAreaStatus && (
+                  <p className="mt-2 text-sm text-indigo-700">{selectedAreaStatus}</p>
                 )}
                 {ocrStatus === 'error' && ocrError && (
                   <p className="mt-2 text-sm text-red-600">{ocrError}</p>
@@ -816,6 +1094,9 @@ function App() {
                       setOcrText('');
                       setReceiptItems([]);
                       setOriginalReceiptItems([]);
+                      setDetectedReceiptTotal(null);
+                      setSelectedAreaRect(null);
+                      setSelectedAreaStatus(null);
                       setFeedbackStatus(null);
                       setReceiptPersistenceStatus(null);
                       setSavedReceiptId(null);
@@ -829,9 +1110,9 @@ function App() {
               </div>
             </div>
 
-            {receiptItems.length > 0 && (
+            {(receiptItems.length > 0 || (detectedReceiptTotal && detectedReceiptTotal > 0)) && (
               <div className="mt-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Detected Line Items</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Detected Receipt Details</h3>
                 <div className="space-y-2">
                   {receiptItems.map((item) => (
                     <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
@@ -864,6 +1145,10 @@ function App() {
 
                 <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
                   <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Detected total paid:</span>
+                    <span className="font-semibold text-gray-800">${effectiveReceiptTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Items total:</span>
                     <span className="font-semibold text-gray-800">${receiptItemsTotal.toFixed(2)}</span>
                   </div>
@@ -879,6 +1164,13 @@ function App() {
                   className="mt-3 px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all"
                 >
                   Use for Food Expense
+                </button>
+                <button
+                  onClick={applyDetectedAmountToExpense}
+                  type="button"
+                  className="mt-3 ml-0 md:ml-3 px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all"
+                >
+                  Use Amount in Expense
                 </button>
                 <button
                   onClick={saveReceiptFeedback}

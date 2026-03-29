@@ -1,0 +1,346 @@
+{
+    "id": 30,
+    "annotations": [
+        {
+            "id": 30,
+            "completed_by": 1,
+            "result": [
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 31.339554043978424,
+                        "y": 53.69533639659213,
+                        "width": 21.0022183036475,
+                        "height": 4.098035405217824,
+                        "rotation": 356.20170477960795
+                    },
+                    "id": "QaO_Xfi3w8",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 31.339554043978424,
+                        "y": 53.69533639659213,
+                        "width": 21.0022183036475,
+                        "height": 4.098035405217824,
+                        "rotation": 356.20170477960795,
+                        "labels": [
+                            "Item Name"
+                        ]
+                    },
+                    "id": "QaO_Xfi3w8",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 31.339554043978424,
+                        "y": 53.69533639659213,
+                        "width": 21.0022183036475,
+                        "height": 4.098035405217824,
+                        "rotation": 356.20170477960795,
+                        "text": [
+                            "Grilled Skirt Steak Well done"
+                        ]
+                    },
+                    "id": "QaO_Xfi3w8",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 30.66193859221543,
+                        "y": 60.071280211571086,
+                        "width": 18.515471577829782,
+                        "height": 1.7880571328889612,
+                        "rotation": 356.5716314411451
+                    },
+                    "id": "45qIZXe6L4",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 30.66193859221543,
+                        "y": 60.071280211571086,
+                        "width": 18.515471577829782,
+                        "height": 1.7880571328889612,
+                        "rotation": 356.5716314411451,
+                        "labels": [
+                            "Item Name"
+                        ]
+                    },
+                    "id": "45qIZXe6L4",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 30.66193859221543,
+                        "y": 60.071280211571086,
+                        "width": 18.515471577829782,
+                        "height": 1.7880571328889612,
+                        "rotation": 356.5716314411451,
+                        "text": [
+                            "Fountain Sodas"
+                        ]
+                    },
+                    "id": "45qIZXe6L4",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 73.67382467296207,
+                        "y": 51.17893947737687,
+                        "width": 6.9970797334490324,
+                        "height": 1.9351203241684762,
+                        "rotation": 356.51067509420346
+                    },
+                    "id": "roo7iWlLxp",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 73.67382467296207,
+                        "y": 51.17893947737687,
+                        "width": 6.9970797334490324,
+                        "height": 1.9351203241684762,
+                        "rotation": 356.51067509420346,
+                        "labels": [
+                            "Price of Items"
+                        ]
+                    },
+                    "id": "roo7iWlLxp",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 73.67382467296207,
+                        "y": 51.17893947737687,
+                        "width": 6.9970797334490324,
+                        "height": 1.9351203241684762,
+                        "rotation": 356.51067509420346,
+                        "text": [
+                            "28.00"
+                        ]
+                    },
+                    "id": "roo7iWlLxp",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 76.05864211902328,
+                        "y": 57.89617528378258,
+                        "width": 5.716688211571756,
+                        "height": 2.1788640015089475,
+                        "rotation": 356.5834118082286
+                    },
+                    "id": "svnLgmho1m",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 76.05864211902328,
+                        "y": 57.89617528378258,
+                        "width": 5.716688211571756,
+                        "height": 2.1788640015089475,
+                        "rotation": 356.5834118082286,
+                        "labels": [
+                            "Price of Items"
+                        ]
+                    },
+                    "id": "svnLgmho1m",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 76.05864211902328,
+                        "y": 57.89617528378258,
+                        "width": 5.716688211571756,
+                        "height": 2.1788640015089475,
+                        "rotation": 356.5834118082286,
+                        "text": [
+                            "3.00"
+                        ]
+                    },
+                    "id": "svnLgmho1m",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 74.95140544763773,
+                        "y": 72.41819936048826,
+                        "width": 8.94955236921504,
+                        "height": 2.768356679148125,
+                        "rotation": 357.81835859644843
+                    },
+                    "id": "FMxSDdi1b-",
+                    "from_name": "bbox",
+                    "to_name": "image",
+                    "type": "rectangle",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 74.95140544763773,
+                        "y": 72.41819936048826,
+                        "width": 8.94955236921504,
+                        "height": 2.768356679148125,
+                        "rotation": 357.81835859644843,
+                        "labels": [
+                            "Total amount"
+                        ]
+                    },
+                    "id": "FMxSDdi1b-",
+                    "from_name": "label",
+                    "to_name": "image",
+                    "type": "labels",
+                    "origin": "manual"
+                },
+                {
+                    "original_width": 338,
+                    "original_height": 450,
+                    "image_rotation": 0,
+                    "value": {
+                        "x": 74.95140544763773,
+                        "y": 72.41819936048826,
+                        "width": 8.94955236921504,
+                        "height": 2.768356679148125,
+                        "rotation": 357.81835859644843,
+                        "text": [
+                            "33.75"
+                        ]
+                    },
+                    "id": "FMxSDdi1b-",
+                    "from_name": "transcription",
+                    "to_name": "image",
+                    "type": "textarea",
+                    "origin": "manual"
+                },
+                {
+                    "from_id": "QaO_Xfi3w8",
+                    "to_id": "roo7iWlLxp",
+                    "type": "relation",
+                    "direction": "right"
+                },
+                {
+                    "from_id": "45qIZXe6L4",
+                    "to_id": "svnLgmho1m",
+                    "type": "relation",
+                    "direction": "right"
+                }
+            ],
+            "was_cancelled": false,
+            "ground_truth": false,
+            "created_at": "2026-03-21T16:47:17.817151Z",
+            "updated_at": "2026-03-21T16:47:17.817183Z",
+            "draft_created_at": "2026-03-21T16:45:07.416248Z",
+            "lead_time": 170.189,
+            "prediction": {},
+            "result_count": 6,
+            "unique_id": "b7785427-06c4-4869-8f9e-22c52b80a105",
+            "import_id": null,
+            "last_action": null,
+            "bulk_created": false,
+            "task": 30,
+            "project": 1,
+            "updated_by": 1,
+            "parent_prediction": null,
+            "parent_annotation": null,
+            "last_created_by": null
+        }
+    ],
+    "file_upload": "d6150fbb-1167-receipt.jpg",
+    "drafts": [],
+    "predictions": [],
+    "data": {
+        "ocr": "/data/upload/1/d6150fbb-1167-receipt.jpg"
+    },
+    "meta": {},
+    "created_at": "2026-03-19T18:44:05.584540Z",
+    "updated_at": "2026-03-21T16:47:17.871398Z",
+    "allow_skip": true,
+    "inner_id": 30,
+    "total_annotations": 1,
+    "cancelled_annotations": 0,
+    "total_predictions": 0,
+    "comment_count": 0,
+    "unresolved_comment_count": 0,
+    "last_comment_updated_at": null,
+    "project": 1,
+    "updated_by": 1,
+    "comment_authors": []
+}
