@@ -37,6 +37,8 @@ interface Expense {
   paidBy: string;
   type: 'regular' | 'food';
   foodOrders?: { [person: string]: number };
+  tax?: number;
+  tip?: number;
 }
 
 interface Settlement {
@@ -105,6 +107,8 @@ function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [newExpense, setNewExpense] = useState({ description: '', amount: '', paidBy: '', type: 'regular' as 'regular' | 'food' });
   const [foodOrders, setFoodOrders] = useState<{ [person: string]: string }>({});
+  const [foodTax, setFoodTax] = useState<string>('');
+  const [foodTip, setFoodTip] = useState<string>('');
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [receiptImage, setReceiptImage] = useState<File | null>(null);
@@ -166,6 +170,8 @@ function App() {
     setSettlements([]);
     setShowResults(false);
     setFoodOrders({});
+    setFoodTax('');
+    setFoodTip('');
     setReceiptHistory([]);
     setReceiptHistoryStatus(null);
   };
@@ -1628,6 +1634,9 @@ function App() {
     });
 
     const totalAmount = resolvedReceiptTotal;
+    const rawOrdersTotal = Object.values(totalsByPerson).reduce((sum, value) => sum + value, 0);
+    const inferredExtraCharges = Math.max(0, totalAmount - rawOrdersTotal);
+
     setNewExpense({
       description: 'Receipt - Food',
       amount: totalAmount > 0 ? totalAmount.toFixed(2) : '',
@@ -1635,6 +1644,8 @@ function App() {
       type: 'food'
     });
     setFoodOrders(updatedFoodOrders);
+    setFoodTax(inferredExtraCharges > 0 ? inferredExtraCharges.toFixed(2) : '');
+    setFoodTip('');
   };
 
   const applyDetectedAmountToExpense = () => {
@@ -1672,21 +1683,46 @@ function App() {
 
       if (newExpense.type === 'food') {
         const orders: { [person: string]: number } = {};
-        let totalOrderAmount = 0;
+        let subtotalOrderAmount = 0;
         
         Object.entries(foodOrders).forEach(([person, amount]) => {
           const orderAmount = parseFloat(amount) || 0;
           if (orderAmount > 0) {
             orders[person] = orderAmount;
-            totalOrderAmount += orderAmount;
+            subtotalOrderAmount += orderAmount;
           }
         });
+
+        const parsedTax = parseFloat(foodTax) || 0;
+        const parsedTip = parseFloat(foodTip) || 0;
+        const totalExtraCharges = parsedTax + parsedTip;
+
+        const distributedOrders: { [person: string]: number } = {};
+        if (subtotalOrderAmount > 0 && totalExtraCharges > 0) {
+          let allocated = 0;
+          const orderEntries = Object.entries(orders);
+          orderEntries.forEach(([person, baseAmount], index) => {
+            if (index === orderEntries.length - 1) {
+              distributedOrders[person] = baseAmount + (totalExtraCharges - allocated);
+              return;
+            }
+            const proportionalExtra = Number(((baseAmount / subtotalOrderAmount) * totalExtraCharges).toFixed(2));
+            distributedOrders[person] = baseAmount + proportionalExtra;
+            allocated += proportionalExtra;
+          });
+        } else {
+          Object.assign(distributedOrders, orders);
+        }
         
-        expense.foodOrders = orders;
+        expense.foodOrders = distributedOrders;
+        expense.tax = parsedTax;
+        expense.tip = parsedTip;
+
+        const totalOrderAmount = subtotalOrderAmount + totalExtraCharges;
         
         // Validate that food orders match the total amount
         if (Math.abs(totalOrderAmount - expense.amount) > 0.01) {
-          alert(`Food orders total (${totalOrderAmount.toFixed(2)}) doesn't match the expense amount (${expense.amount.toFixed(2)}). Please adjust the individual orders.`);
+          alert(`Food subtotal + tax + tip (${totalOrderAmount.toFixed(2)}) doesn't match the expense amount (${expense.amount.toFixed(2)}). Please adjust values.`);
           return;
         }
       }
@@ -1709,9 +1745,11 @@ function App() {
       }
 
       setNewExpense({ description: '', amount: '', paidBy: '', type: 'regular' });
+      setFoodTax('');
+      setFoodTip('');
       
-      // Auto-calculate settlements after adding expense
-      calculateSettlements();
+      // Auto-calculate settlements after adding expense using latest list
+      calculateSettlements(nextExpenses);
       
       // Clear food orders for next expense
       const clearedOrders: { [person: string]: string } = {};
@@ -1724,43 +1762,101 @@ function App() {
 
   // Delete expense
   const deleteExpense = (id: string) => {
-    setExpenses(expenses.filter(expense => expense.id !== id));
+    const nextExpenses = expenses.filter(expense => expense.id !== id);
+    setExpenses(nextExpenses);
+    if (showResults) {
+      calculateSettlements(nextExpenses);
+    }
   };
 
   // Calculate settlements
-  const calculateSettlements = () => {
+  const calculateSettlements = (sourceExpenses: Expense[] = expenses) => {
+    const normalizeName = (value: string) => value.trim();
+
+    const participantSet = new Set<string>();
+    allPeople.map(normalizeName).filter(Boolean).forEach((person) => participantSet.add(person));
+    payers.map(normalizeName).filter(Boolean).forEach((person) => participantSet.add(person));
+
+    sourceExpenses.forEach((expense) => {
+      const payer = normalizeName(expense.paidBy || '');
+      if (payer) {
+        participantSet.add(payer);
+      }
+
+      if (expense.type === 'food' && expense.foodOrders) {
+        Object.keys(expense.foodOrders)
+          .map(normalizeName)
+          .filter(Boolean)
+          .forEach((person) => participantSet.add(person));
+      }
+    });
+
+    const participants = Array.from(participantSet);
+
+    if (participants.length === 0) {
+      setSettlements([]);
+      setShowResults(true);
+      return;
+    }
+
+    const regularSplitPeople = allPeople
+      .map(normalizeName)
+      .filter(Boolean);
+    const splitGroup = regularSplitPeople.length > 0 ? regularSplitPeople : participants;
+
     // Calculate balances for each person
     const balances: { [key: string]: number } = {};
     
     // Initialize all people with zero balance
-    allPeople.forEach(person => {
+    participants.forEach(person => {
       balances[person] = 0;
     });
     
-    expenses.forEach(expense => {
+    sourceExpenses.forEach(expense => {
+      const payer = normalizeName(expense.paidBy || '');
       if (expense.type === 'food' && expense.foodOrders) {
         // For food expenses, each person pays for their own order
         Object.entries(expense.foodOrders).forEach(([person, amount]) => {
-          balances[person] -= amount; // Person owes this amount
+          const normalizedPerson = normalizeName(person);
+          if (normalizedPerson) {
+            if (!balances.hasOwnProperty(normalizedPerson)) {
+              balances[normalizedPerson] = 0;
+            }
+            balances[normalizedPerson] -= Number(amount) || 0;
+          }
         });
-        balances[expense.paidBy] += expense.amount; // Payer gets credit for full amount
+
+        if (payer) {
+          if (!balances.hasOwnProperty(payer)) {
+            balances[payer] = 0;
+          }
+          balances[payer] += expense.amount; // Payer gets credit for full amount
+        }
       } else {
         // For regular expenses, split equally among all people
-        const perPersonShare = expense.amount / totalPeople;
-        allPeople.forEach(person => {
+        const perPersonShare = splitGroup.length > 0 ? expense.amount / splitGroup.length : 0;
+        splitGroup.forEach(person => {
           balances[person] -= perPersonShare; // Everyone owes their share
         });
-        balances[expense.paidBy] += expense.amount; // Payer gets credit for full amount
+
+        if (payer) {
+          if (!balances.hasOwnProperty(payer)) {
+            balances[payer] = 0;
+          }
+          balances[payer] += expense.amount; // Payer gets credit for full amount
+        }
       }
     });
 
     // Redirect dependent balances to their responsible party.
     Object.entries(responsibleParties).forEach(([dependent, responsible]) => {
-      if (!balances.hasOwnProperty(dependent) || !balances.hasOwnProperty(responsible) || dependent === responsible) {
+      const normalizedDependent = normalizeName(dependent);
+      const normalizedResponsible = normalizeName(responsible);
+      if (!balances.hasOwnProperty(normalizedDependent) || !balances.hasOwnProperty(normalizedResponsible) || normalizedDependent === normalizedResponsible) {
         return;
       }
-      balances[responsible] += balances[dependent];
-      balances[dependent] = 0;
+      balances[normalizedResponsible] += balances[normalizedDependent];
+      balances[normalizedDependent] = 0;
     });
     
     // Calculate settlements
@@ -2736,18 +2832,52 @@ function App() {
                     </div>
                   ))}
                 </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tax</label>
+                    <input
+                      type="number"
+                      value={foodTax}
+                      onChange={(e) => setFoodTax(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all text-sm"
+                      placeholder="0.00"
+                      step="0.01"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tip</label>
+                    <input
+                      type="number"
+                      value={foodTip}
+                      onChange={(e) => setFoodTip(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all text-sm"
+                      placeholder="0.00"
+                      step="0.01"
+                      min="0"
+                    />
+                  </div>
+                </div>
                 <div className="mt-3 p-3 bg-white rounded-lg border border-orange-200">
                   <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-600">Total Orders:</span>
+                    <span className="text-gray-600">Food Subtotal:</span>
                     <span className="font-semibold text-gray-800">${getTotalFoodOrdersAmount().toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-600">Tax + Tip:</span>
+                    <span className="font-semibold text-gray-800">${((parseFloat(foodTax) || 0) + (parseFloat(foodTip) || 0)).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-600">Food Total (Subtotal + Tax + Tip):</span>
+                    <span className="font-semibold text-gray-800">${(getTotalFoodOrdersAmount() + (parseFloat(foodTax) || 0) + (parseFloat(foodTip) || 0)).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-600">Expense Amount:</span>
                     <span className="font-semibold text-gray-800">${(parseFloat(newExpense.amount) || 0).toFixed(2)}</span>
                   </div>
-                  {Math.abs(getTotalFoodOrdersAmount() - (parseFloat(newExpense.amount) || 0)) > 0.01 && (
+                  {Math.abs((getTotalFoodOrdersAmount() + (parseFloat(foodTax) || 0) + (parseFloat(foodTip) || 0)) - (parseFloat(newExpense.amount) || 0)) > 0.01 && (
                     <div className="mt-2 text-sm text-red-600">
-                      ⚠️ Orders total doesn't match expense amount
+                      ⚠️ Subtotal + tax + tip doesn't match expense amount
                     </div>
                   )}
                 </div>
