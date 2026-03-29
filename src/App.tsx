@@ -1770,7 +1770,10 @@ function App() {
   };
 
   // Calculate settlements
-  const calculateSettlements = (sourceExpenses: Expense[] = expenses) => {
+  const calculateSettlements = (sourceExpensesArg?: unknown) => {
+    const sourceExpenses = Array.isArray(sourceExpensesArg)
+      ? (sourceExpensesArg as Expense[])
+      : expenses;
     const normalizeName = (value: string) => value.trim();
 
     const participantSet = new Set<string>();
@@ -2968,7 +2971,7 @@ function App() {
                 <div>
                   <p className="text-sm text-blue-600">Per person (regular only): ${perPersonRegularShare.toFixed(2)}</p>
                   <button
-                    onClick={calculateSettlements}
+                    onClick={() => calculateSettlements()}
                     className="mt-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all flex items-center gap-2 font-medium"
                   >
                     <Calculator className="w-4 h-4" />
