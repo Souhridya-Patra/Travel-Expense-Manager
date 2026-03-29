@@ -56,6 +56,9 @@ const buildReceiptItems = (items: ParsedItem[]): ReceiptItem[] => {
 function App() {
   const [totalPeople, setTotalPeople] = useState<number>(0);
   const [payers, setPayers] = useState<string[]>([]);
+  const [travelerNames, setTravelerNames] = useState<string[]>([]);
+  const [nextPayerName, setNextPayerName] = useState<string>('');
+  const [useTravelerChooserForPayers, setUseTravelerChooserForPayers] = useState(false);
   const [allPeople, setAllPeople] = useState<string[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [newExpense, setNewExpense] = useState({ description: '', amount: '', paidBy: '', type: 'regular' as 'regular' | 'food' });
@@ -71,6 +74,7 @@ function App() {
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
   const [originalReceiptItems, setOriginalReceiptItems] = useState<ReceiptItem[]>([]);
   const [detectedReceiptTotal, setDetectedReceiptTotal] = useState<number | null>(null);
+  const [originalDetectedReceiptTotal, setOriginalDetectedReceiptTotal] = useState<number | null>(null);
   const [selectedAreaRect, setSelectedAreaRect] = useState<SelectionRect | null>(null);
   const [isDrawingArea, setIsDrawingArea] = useState(false);
   const [drawStartPoint, setDrawStartPoint] = useState<{ x: number; y: number } | null>(null);
@@ -84,12 +88,19 @@ function App() {
   const [receiptHistoryStatus, setReceiptHistoryStatus] = useState<string | null>(null);
   const [loadingReceiptHistory, setLoadingReceiptHistory] = useState(false);
   const receiptImageRef = useRef<HTMLImageElement | null>(null);
+  const expenseDescriptionRef = useRef<HTMLInputElement | null>(null);
+  const totalTravelersInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    totalTravelersInputRef.current?.focus();
+  }, []);
 
   // Update all people list when total people changes
   useEffect(() => {
     const newAllPeople = [];
     for (let i = 1; i <= totalPeople; i++) {
-      newAllPeople.push(payers[i - 1] || `Person ${i}`);
+      const name = travelerNames[i - 1]?.trim();
+      newAllPeople.push(name || `Person ${i}`);
     }
     setAllPeople(newAllPeople);
 
@@ -102,7 +113,61 @@ function App() {
       });
       return nextFoodOrders;
     });
-  }, [totalPeople, payers]);
+  }, [totalPeople, travelerNames]);
+
+  useEffect(() => {
+    setTravelerNames((currentNames) => {
+      if (totalPeople <= 0) {
+        return [];
+      }
+      const resized = [...currentNames];
+      if (resized.length > totalPeople) {
+        resized.length = totalPeople;
+      }
+      while (resized.length < totalPeople) {
+        resized.push('');
+      }
+      return resized;
+    });
+  }, [totalPeople]);
+
+  const filledTravelerNames = travelerNames
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+  const hasFilledTravelerNames = totalPeople > 0 && filledTravelerNames.length === totalPeople;
+  const canUseTravelerChooser = hasFilledTravelerNames && useTravelerChooserForPayers;
+  const availablePayerChoices = filledTravelerNames.filter((name) => !payers.includes(name));
+
+  useEffect(() => {
+    if (!hasFilledTravelerNames) {
+      setUseTravelerChooserForPayers(false);
+      return;
+    }
+
+    setPayers((currentPayers) => {
+      const normalized = currentPayers.filter((payer) => filledTravelerNames.includes(payer));
+      return normalized.slice(0, totalPeople);
+    });
+  }, [hasFilledTravelerNames, filledTravelerNames, totalPeople]);
+
+  useEffect(() => {
+    if (!canUseTravelerChooser) {
+      setNextPayerName('');
+      return;
+    }
+
+    setNextPayerName((currentSelected) => {
+      if (availablePayerChoices.length === 0) {
+        return '';
+      }
+
+      if (currentSelected && availablePayerChoices.includes(currentSelected)) {
+        return currentSelected;
+      }
+
+      return availablePayerChoices[0];
+    });
+  }, [canUseTravelerChooser, availablePayerChoices]);
 
   useEffect(() => {
     return () => {
@@ -142,9 +207,33 @@ function App() {
 
   // Add a new payer
   const addPayer = () => {
-    if (payers.length < totalPeople) {
-      setPayers([...payers, `Person ${payers.length + 1}`]);
+    if (payers.length >= totalPeople) {
+      return;
     }
+
+    if (canUseTravelerChooser) {
+      const selectedPayer = (nextPayerName || availablePayerChoices[0] || '').trim();
+      if (!selectedPayer || payers.includes(selectedPayer)) {
+        return;
+      }
+      setPayers([...payers, selectedPayer]);
+      return;
+    }
+
+    setPayers([...payers, `Person ${payers.length + 1}`]);
+  };
+
+  const removePayer = (index: number) => {
+    const removedName = payers[index];
+    const updatedPayers = payers.filter((_, payerIndex) => payerIndex !== index);
+    setPayers(updatedPayers);
+
+    setNewExpense((current) => {
+      if (current.paidBy === removedName) {
+        return { ...current, paidBy: '' };
+      }
+      return current;
+    });
   };
 
   // Update payer name
@@ -161,6 +250,14 @@ function App() {
       delete newFoodOrders[oldName];
       setFoodOrders(newFoodOrders);
     }
+  };
+
+  const updateTravelerName = (index: number, name: string) => {
+    setTravelerNames((currentNames) => {
+      const updated = [...currentNames];
+      updated[index] = name;
+      return updated;
+    });
   };
 
   // Update food order amount
@@ -347,52 +444,51 @@ function App() {
     });
   };
 
-  const extractTotalFromSelectedArea = async () => {
+  const readSelectedAreaText = async (): Promise<string> => {
     if (!receiptImage || !selectedAreaRect || !receiptImageRef.current) {
-      setSelectedAreaStatus('Draw a selection on the receipt image first.');
-      return;
+      throw new Error('Draw a selection on the receipt image first.');
     }
 
     const imageElement = receiptImageRef.current;
     const displayWidth = imageElement.clientWidth;
     const displayHeight = imageElement.clientHeight;
     if (displayWidth <= 0 || displayHeight <= 0) {
-      setSelectedAreaStatus('Could not read image dimensions for selected area.');
-      return;
+      throw new Error('Could not read image dimensions for selected area.');
     }
 
+    const imageBitmap = await createImageBitmap(receiptImage);
+
+    const scaleX = imageBitmap.width / displayWidth;
+    const scaleY = imageBitmap.height / displayHeight;
+    const sx = Math.max(0, Math.floor(selectedAreaRect.x * scaleX));
+    const sy = Math.max(0, Math.floor(selectedAreaRect.y * scaleY));
+    const sw = Math.max(1, Math.floor(selectedAreaRect.width * scaleX));
+    const sh = Math.max(1, Math.floor(selectedAreaRect.height * scaleY));
+
+    const cropWidth = Math.min(sw, imageBitmap.width - sx);
+    const cropHeight = Math.min(sh, imageBitmap.height - sy);
+    if (cropWidth <= 0 || cropHeight <= 0) {
+      throw new Error('Selected area is outside the image bounds.');
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Could not initialize canvas for area extraction.');
+    }
+
+    context.drawImage(imageBitmap, sx, sy, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    const result = await Tesseract.recognize(canvas, 'eng');
+    return result?.data?.text?.trim() || '';
+  };
+
+  const extractTotalFromSelectedArea = async () => {
     setSelectedAreaStatus('Reading selected area...');
 
     try {
-      const imageBitmap = await createImageBitmap(receiptImage);
-
-      const scaleX = imageBitmap.width / displayWidth;
-      const scaleY = imageBitmap.height / displayHeight;
-      const sx = Math.max(0, Math.floor(selectedAreaRect.x * scaleX));
-      const sy = Math.max(0, Math.floor(selectedAreaRect.y * scaleY));
-      const sw = Math.max(1, Math.floor(selectedAreaRect.width * scaleX));
-      const sh = Math.max(1, Math.floor(selectedAreaRect.height * scaleY));
-
-      const cropWidth = Math.min(sw, imageBitmap.width - sx);
-      const cropHeight = Math.min(sh, imageBitmap.height - sy);
-      if (cropWidth <= 0 || cropHeight <= 0) {
-        setSelectedAreaStatus('Selected area is outside the image bounds.');
-        return;
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = cropWidth;
-      canvas.height = cropHeight;
-      const context = canvas.getContext('2d');
-      if (!context) {
-        setSelectedAreaStatus('Could not initialize canvas for area extraction.');
-        return;
-      }
-
-      context.drawImage(imageBitmap, sx, sy, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-
-      const result = await Tesseract.recognize(canvas, 'eng');
-      const selectedText = result?.data?.text?.trim() || '';
+      const selectedText = await readSelectedAreaText();
       const total = extractTotalFromTextLocal(selectedText);
 
       if (typeof total === 'number' && Number.isFinite(total) && total > 0) {
@@ -412,6 +508,35 @@ function App() {
       }
     } catch (error) {
       setSelectedAreaStatus(error instanceof Error ? error.message : 'Failed to process selected area.');
+    }
+  };
+
+  const extractDescriptionFromSelectedArea = async () => {
+    setSelectedAreaStatus('Reading selected area for description...');
+
+    try {
+      const selectedText = await readSelectedAreaText();
+      const cleaned = selectedText
+        .replace(/\s+/g, ' ')
+        .replace(/[|]{2,}/g, ' ')
+        .trim();
+
+      if (!cleaned) {
+        setSelectedAreaStatus('Could not detect description text from selected area.');
+        return;
+      }
+
+      setNewExpense((current) => ({
+        ...current,
+        description: cleaned,
+      }));
+      setSelectedAreaStatus('Description extracted from selected area and filled in Add Expense.');
+
+      window.setTimeout(() => {
+        expenseDescriptionRef.current?.focus();
+      }, 0);
+    } catch (error) {
+      setSelectedAreaStatus(error instanceof Error ? error.message : 'Failed to extract description from selected area.');
     }
   };
 
@@ -462,6 +587,7 @@ function App() {
     setReceiptItems([]);
     setOriginalReceiptItems([]);
     setDetectedReceiptTotal(null);
+    setOriginalDetectedReceiptTotal(null);
     setSelectedAreaRect(null);
     setSelectedAreaStatus(null);
     setOcrStatus('idle');
@@ -523,6 +649,7 @@ function App() {
       }
 
       setDetectedReceiptTotal(parsedTotal ?? extractTotalFromTextLocal(text));
+      setOriginalDetectedReceiptTotal(parsedTotal ?? extractTotalFromTextLocal(text));
 
       setReceiptItems(detectedItems);
       setOriginalReceiptItems(detectedItems);
@@ -577,10 +704,12 @@ function App() {
 
   const handleParseReceiptText = () => {
     const parsedItems = parseReceiptText(ocrText);
+    const parsedTotal = extractTotalFromTextLocal(ocrText);
     setReceiptItems(parsedItems);
-    setDetectedReceiptTotal(extractTotalFromTextLocal(ocrText));
+    setDetectedReceiptTotal(parsedTotal);
     if (originalReceiptItems.length === 0) {
       setOriginalReceiptItems(parsedItems);
+      setOriginalDetectedReceiptTotal(parsedTotal);
     }
     setFeedbackStatus(null);
   };
@@ -590,9 +719,27 @@ function App() {
     setFeedbackStatus(null);
   };
 
+  const addReceiptItemRow = () => {
+    setReceiptItems((items) => ([
+      ...items,
+      {
+        id: `${Date.now()}-${Math.random()}`,
+        name: '',
+        amount: 0,
+        assignedTo: undefined,
+      },
+    ]));
+    setFeedbackStatus(null);
+  };
+
+  const removeReceiptItemRow = (id: string) => {
+    setReceiptItems((items) => items.filter((item) => item.id !== id));
+    setFeedbackStatus(null);
+  };
+
   const saveReceiptFeedback = async () => {
-    if (receiptItems.length === 0 || originalReceiptItems.length === 0) {
-      setFeedbackStatus('No parsed receipt data is available to save yet.');
+    if (receiptItems.length === 0 && (!detectedReceiptTotal || detectedReceiptTotal <= 0)) {
+      setFeedbackStatus('No corrected data is available yet. Add or edit line items, or set a corrected total.');
       return;
     }
 
@@ -603,27 +750,43 @@ function App() {
       const originalItems = originalReceiptItems.map((item) => ({
         name: item.name,
         amount: item.amount,
-      }));
+      })).filter((item) => item.name.trim().length > 0 || item.amount > 0);
       const correctedItems = receiptItems.map((item) => ({
         name: item.name,
         amount: item.amount,
-      }));
+      })).filter((item) => item.name.trim().length > 0 || item.amount > 0);
+
+      const computedOriginalTotal = originalItems.reduce((sum, item) => sum + item.amount, 0);
+      const computedCorrectedTotal = correctedItems.reduce((sum, item) => sum + item.amount, 0);
+      const originalTotal =
+        originalDetectedReceiptTotal && originalDetectedReceiptTotal > 0
+          ? originalDetectedReceiptTotal
+          : computedOriginalTotal > 0
+            ? computedOriginalTotal
+            : undefined;
+      const correctedTotal =
+        detectedReceiptTotal && detectedReceiptTotal > 0
+          ? detectedReceiptTotal
+          : computedCorrectedTotal > 0
+            ? computedCorrectedTotal
+            : undefined;
 
       const response = await submitFeedback({
         receipt_id: `receipt_${Date.now()}`,
         original_parse: {
           items: originalItems,
-          total: originalItems.reduce((sum, item) => sum + item.amount, 0),
+          total: originalTotal,
         },
         corrected_parse: {
           items: correctedItems,
-          total: correctedItems.reduce((sum, item) => sum + item.amount, 0),
+          total: correctedTotal,
         },
       });
 
       if (response.status === 'stored') {
         setFeedbackStatus('Corrections saved. Future retraining can use this receipt.');
         setOriginalReceiptItems(receiptItems);
+        setOriginalDetectedReceiptTotal(detectedReceiptTotal);
 
         if (savedReceiptId) {
           const updatedReceipt = await updateTripReceipt(savedReceiptId, {
@@ -704,12 +867,16 @@ function App() {
       return;
     }
 
-    setNewExpense({
-      description: '',
+    setNewExpense((current) => ({
+      ...current,
       amount: resolvedReceiptTotal.toFixed(2),
-      paidBy: newExpense.paidBy || payers[0] || '',
+      paidBy: current.paidBy || payers[0] || '',
       type: 'regular',
-    });
+    }));
+
+    window.setTimeout(() => {
+      expenseDescriptionRef.current?.focus();
+    }, 0);
   };
 
   // Add expense
@@ -938,6 +1105,7 @@ function App() {
                 Total Number of Travelers
               </label>
               <input
+                ref={totalTravelersInputRef}
                 type="number"
                 value={totalPeople}
                 onChange={(e) => setTotalPeople(parseInt(e.target.value) || 0)}
@@ -945,6 +1113,26 @@ function App() {
                 placeholder="Enter number of people"
                 min="1"
               />
+
+              {totalPeople > 0 && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Traveller Names
+                  </label>
+                  <div className="space-y-2">
+                    {Array.from({ length: totalPeople }).map((_, index) => (
+                      <input
+                        key={`traveller-${index}`}
+                        type="text"
+                        value={travelerNames[index] || ''}
+                        onChange={(e) => updateTravelerName(index, e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        placeholder={`Traveller ${index + 1} name`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             
             <div>
@@ -952,24 +1140,78 @@ function App() {
                 People Who Paid Expenses
               </label>
               <div className="space-y-2">
+                {hasFilledTravelerNames && (
+                  <button
+                    onClick={() => setUseTravelerChooserForPayers((enabled) => !enabled)}
+                    className="w-full px-3 py-2 border border-blue-200 rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 transition-all text-sm font-medium"
+                  >
+                    {canUseTravelerChooser ? 'Use Manual Payer Entry' : 'Choose Payers from Travellers'}
+                  </button>
+                )}
+
                 {payers.map((payer, index) => (
-                  <input
-                    key={index}
-                    type="text"
-                    value={payer}
-                    onChange={(e) => updatePayerName(index, e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    placeholder={`Person ${index + 1} name`}
-                  />
+                  <div key={index} className="flex gap-2">
+                    {canUseTravelerChooser ? (
+                      <select
+                        value={payer}
+                        onChange={(e) => updatePayerName(index, e.target.value)}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                      >
+                        {filledTravelerNames
+                          .filter((name) => name === payer || !payers.includes(name))
+                          .map((name) => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={payer}
+                        onChange={(e) => updatePayerName(index, e.target.value)}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        placeholder={`Person ${index + 1} name`}
+                      />
+                    )}
+                    <button
+                      onClick={() => removePayer(index)}
+                      className="px-3 py-2 border border-red-200 rounded-lg text-red-600 hover:bg-red-50 transition-all flex items-center justify-center"
+                      aria-label={`Remove payer ${payer}`}
+                      title="Remove payer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 ))}
                 {payers.length < totalPeople && (
-                  <button
-                    onClick={addPayer}
-                    className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Payer
-                  </button>
+                  canUseTravelerChooser ? (
+                    <div className="flex gap-2">
+                      <select
+                        value={nextPayerName}
+                        onChange={(e) => setNextPayerName(e.target.value)}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                      >
+                        {availablePayerChoices.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={addPayer}
+                        className="px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 transition-all flex items-center justify-center gap-2"
+                        disabled={availablePayerChoices.length === 0}
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Payer
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={addPayer}
+                      className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Payer
+                    </button>
+                  )
                 )}
               </div>
             </div>
@@ -1055,6 +1297,14 @@ function App() {
                 >
                   Extract Total from Selected Area
                 </button>
+                <button
+                  onClick={extractDescriptionFromSelectedArea}
+                  disabled={!receiptImage || !selectedAreaRect}
+                  type="button"
+                  className="mt-3 ml-0 md:ml-3 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Extract Description from Selected Area
+                </button>
                 {ocrStatus === 'running' && (
                   <p className="mt-2 text-sm text-gray-600">Progress: {ocrProgress}%</p>
                 )}
@@ -1095,6 +1345,7 @@ function App() {
                       setReceiptItems([]);
                       setOriginalReceiptItems([]);
                       setDetectedReceiptTotal(null);
+                      setOriginalDetectedReceiptTotal(null);
                       setSelectedAreaRect(null);
                       setSelectedAreaStatus(null);
                       setFeedbackStatus(null);
@@ -1120,13 +1371,13 @@ function App() {
                         type="text"
                         value={item.name}
                         onChange={(e) => updateReceiptItem(item.id, { name: e.target.value, assignedTo: item.assignedTo || suggestPersonForItem(e.target.value) || undefined })}
-                        className="md:col-span-6 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        className="md:col-span-5 px-3 py-2 border border-gray-300 rounded-lg text-sm"
                       />
                       <input
                         type="number"
                         value={item.amount}
                         onChange={(e) => updateReceiptItem(item.id, { amount: parseFloat(e.target.value) || 0 })}
-                        className="md:col-span-3 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        className="md:col-span-2 px-3 py-2 border border-gray-300 rounded-lg text-sm"
                         step="0.01"
                       />
                       <select
@@ -1139,14 +1390,43 @@ function App() {
                           <option key={person} value={person}>{person}</option>
                         ))}
                       </select>
+                      <button
+                        onClick={() => removeReceiptItemRow(item.id)}
+                        type="button"
+                        className="md:col-span-2 px-3 py-2 bg-red-50 text-red-700 rounded-lg border border-red-200 hover:bg-red-100 transition-all text-sm"
+                      >
+                        Remove
+                      </button>
                     </div>
                   ))}
                 </div>
 
+                <button
+                  onClick={addReceiptItemRow}
+                  type="button"
+                  className="mt-3 px-4 py-2 bg-white text-gray-700 rounded-lg border border-gray-300 hover:bg-gray-50 transition-all"
+                >
+                  Add Line Item
+                </button>
+
                 <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Detected total paid:</span>
-                    <span className="font-semibold text-gray-800">${effectiveReceiptTotal.toFixed(2)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-500">$</span>
+                      <input
+                        type="number"
+                        value={detectedReceiptTotal ?? ''}
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value);
+                          setDetectedReceiptTotal(Number.isFinite(value) ? value : null);
+                          setFeedbackStatus(null);
+                        }}
+                        step="0.01"
+                        className="w-28 px-2 py-1 border border-purple-200 rounded text-sm font-semibold text-gray-800 bg-white"
+                        placeholder={effectiveReceiptTotal.toFixed(2)}
+                      />
+                    </div>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Items total:</span>
@@ -1263,6 +1543,7 @@ function App() {
                   Description
                 </label>
                 <input
+                  ref={expenseDescriptionRef}
                   type="text"
                   value={newExpense.description}
                   onChange={(e) => setNewExpense({...newExpense, description: e.target.value})}
