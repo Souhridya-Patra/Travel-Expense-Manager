@@ -66,6 +66,7 @@ interface GuestTripSnapshot {
   totalPeople: number;
   travelerNames: string[];
   payers: string[];
+  responsibleParties: Record<string, string>;
   expenses: Expense[];
   settlements: Settlement[];
   receiptHistory: StoredTripReceipt[];
@@ -97,6 +98,7 @@ function App() {
   const [totalPeople, setTotalPeople] = useState<number>(0);
   const [payers, setPayers] = useState<string[]>([]);
   const [travelerNames, setTravelerNames] = useState<string[]>([]);
+  const [responsibleParties, setResponsibleParties] = useState<Record<string, string>>({});
   const [nextPayerName, setNextPayerName] = useState<string>('');
   const [useTravelerChooserForPayers, setUseTravelerChooserForPayers] = useState(false);
   const [allPeople, setAllPeople] = useState<string[]>([]);
@@ -140,6 +142,11 @@ function App() {
   const [tripStatus, setTripStatus] = useState<string | null>(null);
   const [loadingTrips, setLoadingTrips] = useState(false);
   const [creatingNewTrip, setCreatingNewTrip] = useState(false);
+  const [savingTrip, setSavingTrip] = useState(false);
+  const [tripLastSavedAt, setTripLastSavedAt] = useState<string | null>(null);
+  const [renamingTrip, setRenamingTrip] = useState(false);
+  const [renameTripLoading, setRenameTripLoading] = useState(false);
+  const [renameTripDraft, setRenameTripDraft] = useState('');
   const receiptImageRef = useRef<HTMLImageElement | null>(null);
   const expenseDescriptionRef = useRef<HTMLInputElement | null>(null);
   const totalTravelersInputRef = useRef<HTMLInputElement | null>(null);
@@ -153,6 +160,7 @@ function App() {
     setTotalPeople(0);
     setPayers([]);
     setTravelerNames([]);
+    setResponsibleParties({});
     setAllPeople([]);
     setExpenses([]);
     setSettlements([]);
@@ -176,6 +184,7 @@ function App() {
     totalPeople,
     travelerNames,
     payers,
+    responsibleParties,
     expenses,
     settlements,
     receiptHistory,
@@ -189,6 +198,9 @@ function App() {
     const memberTotal = Number(members?.totalPeople || 0);
     const memberTravelers = Array.isArray(members?.travelerNames) ? members?.travelerNames as string[] : [];
     const memberPayers = Array.isArray(members?.payers) ? members?.payers as string[] : [];
+    const memberResponsibleParties = members?.responsibleParties && typeof members.responsibleParties === 'object'
+      ? members.responsibleParties as Record<string, string>
+      : {};
 
     if (memberTotal > 0) {
       setTotalPeople(memberTotal);
@@ -200,11 +212,13 @@ function App() {
       setTravelerNames(travelersToSet.slice(0, memberTotal));
       // Keep all payers - do NOT slice to memberTotal
       setPayers(memberPayers);
+      setResponsibleParties(memberResponsibleParties);
     } else {
       // Ensure no stale member state is carried over between trips
       setTotalPeople(0);
       setTravelerNames([]);
       setPayers([]);
+      setResponsibleParties({});
     }
 
     const expenseResult = await listTripExpensesApi(trip.id);
@@ -218,11 +232,14 @@ function App() {
         foodOrders: expense.food_orders || undefined,
       }));
       setExpenses(mappedExpenses);
-      // Auto-calculate settlements after loading expenses
-      calculateSettlements();
+      // Always reset settlement result view when loading/switching trips.
+      // This prevents stale results from a previously active trip from appearing.
+      setSettlements([]);
+      setShowResults(false);
     } else {
       setExpenses([]);
       setSettlements([]);
+      setShowResults(false);
       setTripStatus(expenseResult.message || 'Could not load trip expenses.');
     }
 
@@ -246,11 +263,13 @@ function App() {
     totalPeople: number;
     travelerNames: string[];
     payers: string[];
+    responsibleParties: Record<string, string>;
   }) => {
     const membersPayload = membersOverride ?? {
       totalPeople,
       travelerNames,
       payers,
+      responsibleParties,
     };
     const result = await createTripApi(buildAutoTripName(), membersPayload);
     if (result.status === 'success' && result.trip) {
@@ -301,6 +320,7 @@ function App() {
         setTotalPeople(selected.totalPeople);
         setTravelerNames(selected.travelerNames || []);
         setPayers(selected.payers || []);
+        setResponsibleParties(selected.responsibleParties || {});
         setExpenses(selected.expenses || []);
         setSettlements(selected.settlements || []);
         setReceiptHistory(selected.receiptHistory || []);
@@ -330,6 +350,7 @@ function App() {
           totalPeople: 0,
           travelerNames: [],
           payers: [],
+          responsibleParties: {},
         });
       }
     };
@@ -357,6 +378,7 @@ function App() {
     totalPeople,
     travelerNames,
     payers,
+    responsibleParties,
     expenses,
     settlements,
     receiptHistory,
@@ -472,12 +494,41 @@ function App() {
           totalPeople,
           travelerNames,
           payers,
+          responsibleParties,
         },
       });
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [sessionMode, activeTripId, totalPeople, travelerNames, payers]);
+  }, [sessionMode, activeTripId, totalPeople, travelerNames, payers, responsibleParties]);
+
+  useEffect(() => {
+    if (totalPeople <= 0) {
+      setResponsibleParties({});
+      return;
+    }
+
+    setResponsibleParties((current) => {
+      const validPeople = new Set(
+        travelerNames
+          .slice(0, totalPeople)
+          .map((name) => name.trim())
+          .filter((name) => name.length > 0)
+      );
+
+      if (validPeople.size === 0) {
+        return {};
+      }
+
+      const next: Record<string, string> = {};
+      Object.entries(current).forEach(([dependent, responsible]) => {
+        if (validPeople.has(dependent) && validPeople.has(responsible) && dependent !== responsible) {
+          next[dependent] = responsible;
+        }
+      });
+      return next;
+    });
+  }, [totalPeople, travelerNames]);
 
   const filledTravelerNames = travelerNames
     .map((name) => name.trim())
@@ -610,10 +661,46 @@ function App() {
   };
 
   const updateTravelerName = (index: number, name: string) => {
+    const oldName = travelerNames[index]?.trim() || '';
+    const nextName = name.trim();
+
+    if (oldName && oldName !== nextName) {
+      setResponsibleParties((current) => {
+        const next = { ...current };
+        if (next[oldName]) {
+          next[nextName] = next[oldName];
+          delete next[oldName];
+        }
+
+        Object.keys(next).forEach((dependent) => {
+          if (next[dependent] === oldName) {
+            next[dependent] = nextName;
+          }
+        });
+
+        if (!nextName) {
+          delete next[nextName];
+        }
+        return next;
+      });
+    }
+
     setTravelerNames((currentNames) => {
       const updated = [...currentNames];
       updated[index] = name;
       return updated;
+    });
+  };
+
+  const updateResponsibleParty = (dependent: string, responsible: string) => {
+    setResponsibleParties((current) => {
+      const next = { ...current };
+      if (!responsible || responsible === dependent) {
+        delete next[dependent];
+      } else {
+        next[dependent] = responsible;
+      }
+      return next;
     });
   };
 
@@ -680,6 +767,7 @@ function App() {
       setTotalPeople(selected.totalPeople);
       setTravelerNames(selected.travelerNames || []);
       setPayers(selected.payers || []);
+      setResponsibleParties(selected.responsibleParties || {});
       setExpenses(selected.expenses || []);
       setSettlements(selected.settlements || []);
       setReceiptHistory(selected.receiptHistory || []);
@@ -723,6 +811,7 @@ function App() {
           totalPeople: 0,
           travelerNames: [],
           payers: [],
+          responsibleParties: {},
         });
         return;
       }
@@ -761,11 +850,152 @@ function App() {
     setTotalPeople(selectedTrip.totalPeople);
     setTravelerNames(selectedTrip.travelerNames || []);
     setPayers(selectedTrip.payers || []);
+    setResponsibleParties(selectedTrip.responsibleParties || {});
     setExpenses(selectedTrip.expenses || []);
     setSettlements(selectedTrip.settlements || []);
     setReceiptHistory(selectedTrip.receiptHistory || []);
     setTripStatus(`Loaded ${selectedTrip.name}`);
   };
+
+  const handleSaveTripDetails = async () => {
+    if (savingTrip) {
+      return;
+    }
+
+    setSavingTrip(true);
+    try {
+      if (sessionMode === 'user') {
+        if (!activeTripId) {
+          setTripStatus('Select a trip before saving.');
+          return;
+        }
+
+        const result = await updateTripApi(activeTripId, {
+          members: {
+            totalPeople,
+            travelerNames,
+            payers,
+            responsibleParties,
+          },
+        });
+
+        if (result.status === 'success') {
+          setTripStatus('Trip details saved.');
+        } else {
+          setTripStatus(result.message || 'Could not save trip details.');
+        }
+        return;
+      }
+
+      if (sessionMode === 'guest') {
+        if (!activeGuestTripId) {
+          setTripStatus('Start or select a guest trip before saving.');
+          return;
+        }
+
+        const snapshot = toGuestSnapshot(
+          activeGuestTripId,
+          guestTrips.find((trip) => trip.id === activeGuestTripId)?.name
+        );
+
+        setGuestTrips((currentTrips) => {
+          const existing = currentTrips.find((trip) => trip.id === activeGuestTripId);
+          const nextTrips = existing
+            ? currentTrips.map((trip) => (trip.id === activeGuestTripId ? snapshot : trip))
+            : [snapshot, ...currentTrips];
+          localStorage.setItem(STORAGE_KEYS.guestTrips, JSON.stringify(nextTrips));
+          return nextTrips;
+        });
+
+        setTripStatus('Guest trip details saved locally.');
+      }
+    } finally {
+      setSavingTrip(false);
+    }
+  };
+
+  const beginRenameTrip = () => {
+    const activeName = sessionMode === 'user'
+      ? serverTrips.find((trip) => trip.id === activeTripId)?.name || ''
+      : guestTrips.find((trip) => trip.id === activeGuestTripId)?.name || '';
+
+    if (!activeName) {
+      return;
+    }
+
+    setRenameTripDraft(activeName);
+    setRenamingTrip(true);
+  };
+
+  const cancelRenameTrip = () => {
+    setRenamingTrip(false);
+    setRenameTripDraft('');
+  };
+
+  const formatSavedTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString([], {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+  const saveRenamedTrip = async () => {
+    const nextName = renameTripDraft.trim();
+    if (!nextName) {
+      setTripStatus('Trip name cannot be empty.');
+      return;
+    }
+
+    setRenameTripLoading(true);
+    try {
+      if (sessionMode === 'user' && activeTripId) {
+        const result = await updateTripApi(activeTripId, { name: nextName });
+        if (result.status !== 'success') {
+          setTripStatus(result.message || 'Could not rename trip.');
+          return;
+        }
+
+        setServerTrips((current) =>
+          current.map((trip) => (trip.id === activeTripId ? { ...trip, name: nextName } : trip))
+        );
+        setTripLastSavedAt(new Date().toISOString());
+        setTripStatus(`Trip renamed to ${nextName}`);
+        setRenamingTrip(false);
+        return;
+      }
+
+      if (sessionMode === 'guest' && activeGuestTripId) {
+        setGuestTrips((currentTrips) => {
+          const nextTrips = currentTrips.map((trip) =>
+            trip.id === activeGuestTripId
+              ? {
+                  ...trip,
+                  name: nextName,
+                  updatedAt: new Date().toISOString(),
+                }
+              : trip
+          );
+          localStorage.setItem(STORAGE_KEYS.guestTrips, JSON.stringify(nextTrips));
+          return nextTrips;
+        });
+        setTripLastSavedAt(new Date().toISOString());
+        setTripStatus(`Trip renamed to ${nextName}`);
+        setRenamingTrip(false);
+      }
+    } finally {
+      setRenameTripLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setRenamingTrip(false);
+    setRenameTripDraft('');
+  }, [sessionMode, activeTripId, activeGuestTripId]);
+
+  useEffect(() => {
+    setTripLastSavedAt(null);
+  }, [sessionMode, activeTripId, activeGuestTripId]);
 
   // Update food order amount
   const updateFoodOrder = (person: string, amount: string) => {
@@ -1523,6 +1753,15 @@ function App() {
         balances[expense.paidBy] += expense.amount; // Payer gets credit for full amount
       }
     });
+
+    // Redirect dependent balances to their responsible party.
+    Object.entries(responsibleParties).forEach(([dependent, responsible]) => {
+      if (!balances.hasOwnProperty(dependent) || !balances.hasOwnProperty(responsible) || dependent === responsible) {
+        return;
+      }
+      balances[responsible] += balances[dependent];
+      balances[dependent] = 0;
+    });
     
     // Calculate settlements
     const creditors = Object.entries(balances).filter(([, balance]) => balance > 0.01);
@@ -1786,6 +2025,23 @@ function App() {
                   >
                     Refresh Trips
                   </button>
+                  <button
+                    onClick={handleSaveTripDetails}
+                    disabled={savingTrip || !activeTripId}
+                    className="px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {savingTrip ? 'Saving...' : 'Save Trip'}
+                  </button>
+                  {tripLastSavedAt && (
+                    <span className="text-xs text-gray-600">Last saved at {formatSavedTime(tripLastSavedAt)}</span>
+                  )}
+                  <button
+                    onClick={beginRenameTrip}
+                    disabled={!activeTripId || renameTripLoading}
+                    className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Rename Trip
+                  </button>
                 </>
               ) : (
                 <>
@@ -1806,6 +2062,23 @@ function App() {
                   >
                     {creatingNewTrip ? 'Creating...' : 'New Guest Trip'}
                   </button>
+                  <button
+                    onClick={beginRenameTrip}
+                    disabled={!activeGuestTripId || renameTripLoading}
+                    className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Rename Trip
+                  </button>
+                  <button
+                    onClick={handleSaveTripDetails}
+                    disabled={savingTrip || !activeGuestTripId}
+                    className="px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {savingTrip ? 'Saving...' : 'Save Trip'}
+                  </button>
+                  {tripLastSavedAt && (
+                    <span className="text-xs text-gray-600">Last saved at {formatSavedTime(tripLastSavedAt)}</span>
+                  )}
                 </>
               )}
 
@@ -1818,6 +2091,35 @@ function App() {
               </button>
             </div>
           </div>
+          {renamingTrip && (
+            <div className="mt-3 p-3 rounded-lg border border-emerald-200 bg-emerald-50">
+              <label className="block text-sm font-medium text-emerald-800 mb-2">New Trip Name</label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={renameTripDraft}
+                  onChange={(e) => setRenameTripDraft(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  placeholder="Enter trip name"
+                  maxLength={80}
+                />
+                <button
+                  onClick={saveRenamedTrip}
+                  disabled={renameTripLoading}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all disabled:opacity-60"
+                >
+                  {renameTripLoading ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={cancelRenameTrip}
+                  disabled={renameTripLoading}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-all disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           {tripStatus && <p className="mt-2 text-sm text-gray-700">{tripStatus}</p>}
         </div>
 
@@ -1998,6 +2300,35 @@ function App() {
                   )
                 )}
               </div>
+
+              {filledTravelerNames.length > 1 && (
+                <div className="mt-4 p-3 border border-emerald-200 rounded-lg bg-emerald-50">
+                  <p className="text-sm font-semibold text-emerald-800 mb-2">Responsible Party Links (Optional)</p>
+                  <p className="text-xs text-emerald-700 mb-3">
+                    If a traveller is linked, their final balance is transferred to the responsible person.
+                  </p>
+                  <div className="space-y-2">
+                    {filledTravelerNames.map((dependent) => (
+                      <div key={`relation-${dependent}`} className="flex items-center gap-2">
+                        <span className="text-sm text-gray-700 min-w-[90px]">{dependent}</span>
+                        <span className="text-xs text-gray-500">covered by</span>
+                        <select
+                          value={responsibleParties[dependent] || ''}
+                          onChange={(e) => updateResponsibleParty(dependent, e.target.value)}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-sm"
+                        >
+                          <option value="">No link</option>
+                          {filledTravelerNames
+                            .filter((name) => name !== dependent)
+                            .map((name) => (
+                              <option key={`${dependent}-to-${name}`} value={name}>{name}</option>
+                            ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2254,7 +2585,7 @@ function App() {
           </div>
         )}
 
-        {/* Receipt History Section */}
+        {/* Receipt History Section
         {payers.length > 0 && (
           <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
             <div className="flex items-center justify-between gap-3 mb-4">
@@ -2311,7 +2642,7 @@ function App() {
               </div>
             )}
           </div>
-        )}
+        )} */}
 
         {/* Add Expense Section */}
         {payers.length > 0 && (
