@@ -1,3 +1,8 @@
+/**
+ * Travel Expense Manager
+ * Copyright (c) 2026 Souhridya Patra
+ * Licensed under the MIT License
+ */
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
