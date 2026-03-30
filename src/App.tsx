@@ -3303,92 +3303,98 @@ function App() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Receipt Text</label>
-                <textarea
-                  value={ocrText}
-                  onChange={(e) => setOcrText(e.target.value)}
-                  rows={10}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder="Paste receipt text here if OCR is unavailable"
-                />
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    onClick={handleParseReceiptText}
-                    type="button"
-                    className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all"
-                  >
-                    Parse Line Items Locally
-                  </button>
-                  <button
-                    onClick={() => {
-                      setOcrText('');
-                      setReceiptItems([]);
-                      setOriginalReceiptItems([]);
-                      setDetectedReceiptTotal(null);
-                      setOriginalDetectedReceiptTotal(null);
-                      setSelectedAreaRect(null);
-                      setSelectedAreaStatus(null);
-                      setFeedbackStatus(null);
-                      setReceiptPersistenceStatus(null);
-                      setSavedReceiptId(null);
-                    }}
-                    type="button"
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all"
-                  >
-                    Clear
-                  </button>
+              {isDebuggingMode && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Receipt Text</label>
+                  <textarea
+                    value={ocrText}
+                    onChange={(e) => setOcrText(e.target.value)}
+                    rows={10}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                    placeholder="Paste receipt text here if OCR is unavailable"
+                  />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={handleParseReceiptText}
+                      type="button"
+                      className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all"
+                    >
+                      Parse Line Items Locally
+                    </button>
+                    <button
+                      onClick={() => {
+                        setOcrText('');
+                        setReceiptItems([]);
+                        setOriginalReceiptItems([]);
+                        setDetectedReceiptTotal(null);
+                        setOriginalDetectedReceiptTotal(null);
+                        setSelectedAreaRect(null);
+                        setSelectedAreaStatus(null);
+                        setFeedbackStatus(null);
+                        setReceiptPersistenceStatus(null);
+                        setSavedReceiptId(null);
+                      }}
+                      type="button"
+                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {(receiptItems.length > 0 || (detectedReceiptTotal && detectedReceiptTotal > 0)) && (
               <div className="mt-6">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">Detected Receipt Details</h3>
-                <div className="space-y-2">
-                  {receiptItems.map((item) => (
-                    <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
-                      <input
-                        type="text"
-                        value={item.name}
-                        onChange={(e) => updateReceiptItem(item.id, { name: e.target.value, assignedTo: item.assignedTo || suggestPersonForItem(e.target.value) || undefined })}
-                        className="md:col-span-5 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                      />
-                      <input
-                        type="number"
-                        value={item.amount}
-                        onChange={(e) => updateReceiptItem(item.id, { amount: parseFloat(e.target.value) || 0 })}
-                        className="md:col-span-2 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                        step="0.01"
-                      />
-                      <select
-                        value={item.assignedTo || ''}
-                        onChange={(e) => updateReceiptItem(item.id, { assignedTo: e.target.value || undefined })}
-                        className="md:col-span-3 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                      >
-                        <option value="">Unassigned</option>
-                        {allPeople.map((person) => (
-                          <option key={person} value={person}>{person}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => removeReceiptItemRow(item.id)}
-                        type="button"
-                        className="md:col-span-2 px-3 py-2 bg-red-50 text-red-700 rounded-lg border border-red-200 hover:bg-red-100 transition-all text-sm"
-                      >
-                        Remove
-                      </button>
+                {isDebuggingMode && (
+                  <>
+                    <div className="space-y-2">
+                      {receiptItems.map((item) => (
+                        <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => updateReceiptItem(item.id, { name: e.target.value, assignedTo: item.assignedTo || suggestPersonForItem(e.target.value) || undefined })}
+                            className="md:col-span-5 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          />
+                          <input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) => updateReceiptItem(item.id, { amount: parseFloat(e.target.value) || 0 })}
+                            className="md:col-span-2 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            step="0.01"
+                          />
+                          <select
+                            value={item.assignedTo || ''}
+                            onChange={(e) => updateReceiptItem(item.id, { assignedTo: e.target.value || undefined })}
+                            className="md:col-span-3 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          >
+                            <option value="">Unassigned</option>
+                            {allPeople.map((person) => (
+                              <option key={person} value={person}>{person}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => removeReceiptItemRow(item.id)}
+                            type="button"
+                            className="md:col-span-2 px-3 py-2 bg-red-50 text-red-700 rounded-lg border border-red-200 hover:bg-red-100 transition-all text-sm"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                <button
-                  onClick={addReceiptItemRow}
-                  type="button"
-                  className="mt-3 px-4 py-2 bg-white text-gray-700 rounded-lg border border-gray-300 hover:bg-gray-50 transition-all"
-                >
-                  Add Line Item
-                </button>
+                    <button
+                      onClick={addReceiptItemRow}
+                      type="button"
+                      className="mt-3 px-4 py-2 bg-white text-gray-700 rounded-lg border border-gray-300 hover:bg-gray-50 transition-all"
+                    >
+                      Add Line Item
+                    </button>
+                  </>
+                )}
 
                 <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
                   <div className="flex justify-between text-sm">
@@ -3409,14 +3415,18 @@ function App() {
                       />
                     </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Items total:</span>
-                    <span className="font-semibold text-gray-800">${receiptItemsTotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Assigned total:</span>
-                    <span className="font-semibold text-gray-800">${assignedItemsTotal.toFixed(2)}</span>
-                  </div>
+                  {isDebuggingMode && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Items total:</span>
+                        <span className="font-semibold text-gray-800">${receiptItemsTotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Assigned total:</span>
+                        <span className="font-semibold text-gray-800">${assignedItemsTotal.toFixed(2)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <button
