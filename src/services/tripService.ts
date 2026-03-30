@@ -51,6 +51,30 @@ interface TripShareCandidatesResult extends TripApiResult {
   candidates: TripShareCandidate[];
 }
 
+export interface SpendingStats {
+  rangeType: 'monthly' | 'yearly' | 'custom';
+  startDate: string | null;
+  endDate: string | null;
+  totalAmount: number;
+  expenseCount: number;
+  earliestDate: string | null;
+  latestDate: string | null;
+}
+
+interface SpendingStatsResult extends TripApiResult {
+  data?: SpendingStats;
+}
+
+export interface MonthlyBreakdown {
+  month: string;
+  totalAmount: number;
+  expenseCount: number;
+}
+
+interface SpendingBreakdownResult extends TripApiResult {
+  data?: MonthlyBreakdown[];
+}
+
 const getAuthToken = () => localStorage.getItem('authToken') || localStorage.getItem('token') || '';
 
 async function parseJson(response: Response) {
@@ -265,6 +289,74 @@ export async function updateTripSharesApi(tripId: string, emails: string[]): Pro
     return {
       status: 'error',
       message: error instanceof Error ? error.message : 'Failed to update trip sharing',
+    };
+  }
+}
+
+export async function getUserSpendingStatsApi(
+  rangeType: 'monthly' | 'yearly' | 'custom' = 'monthly',
+  startDate?: string,
+  endDate?: string
+): Promise<SpendingStatsResult> {
+  const token = getAuthToken();
+  if (!token) {
+    return { status: 'error', message: 'Missing token' };
+  }
+
+  try {
+    const params = new URLSearchParams({ rangeType });
+    if (rangeType === 'custom' && startDate && endDate) {
+      params.append('startDate', startDate);
+      params.append('endDate', endDate);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/user/spending-stats?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await parseJson(response);
+    if (!response.ok) {
+      return { status: 'error', message: data.message || `HTTP ${response.status}` };
+    }
+
+    return { status: 'success', data: data.data };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to fetch spending statistics',
+    };
+  }
+}
+
+export async function getUserSpendingBreakdownApi(): Promise<SpendingBreakdownResult> {
+  const token = getAuthToken();
+  if (!token) {
+    return { status: 'error', message: 'Missing token' };
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/user/spending-breakdown`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await parseJson(response);
+    if (!response.ok) {
+      return { status: 'error', message: data.message || `HTTP ${response.status}` };
+    }
+
+    return { status: 'success', data: data.data };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to fetch spending breakdown',
     };
   }
 }

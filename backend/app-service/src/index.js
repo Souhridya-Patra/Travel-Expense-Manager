@@ -646,6 +646,93 @@ app.post('/api/ml-feedback', authMiddleware, async (req, res) => {
   return res.status(201).json({ feedback: result.rows[0] });
 });
 
+// Get user's spending statistics for a given time range
+app.get('/api/user/spending-stats', authMiddleware, async (req, res) => {
+  const { rangeType = 'monthly', startDate, endDate } = req.query;
+  const userId = req.user.sub;
+
+  try {
+    let query = `
+      SELECT 
+        SUM(e.amount) as total_amount,
+        COUNT(e.id) as expense_count,
+        MIN(e.created_at) as earliest_date,
+        MAX(e.created_at) as latest_date
+      FROM expenses e
+      JOIN trips t ON e.trip_id = t.id
+      LEFT JOIN trip_shares ts ON ts.trip_id = t.id
+      WHERE (t.user_id = $1 OR ts.user_id = $1) AND 1=1
+    `;
+    const params = [userId];
+
+    // Add date filtering based on range type
+    if (rangeType === 'monthly') {
+      // Current month
+      query += ` AND DATE_TRUNC('month', e.created_at) = DATE_TRUNC('month', NOW())`;
+    } else if (rangeType === 'yearly') {
+      // Current year
+      query += ` AND DATE_TRUNC('year', e.created_at) = DATE_TRUNC('year', NOW())`;
+    } else if (rangeType === 'custom' && startDate && endDate) {
+      // Custom date range
+      query += ` AND e.created_at >= $2::timestamp AND e.created_at <= $3::timestamp`;
+      params.push(startDate);
+      params.push(endDate);
+    }
+
+    const result = await pool.query(query, params);
+    const stats = result.rows[0];
+
+    return res.json({
+      status: 'success',
+      data: {
+        rangeType,
+        startDate: rangeType === 'custom' ? startDate : null,
+        endDate: rangeType === 'custom' ? endDate : null,
+        totalAmount: parseFloat(stats.total_amount || 0),
+        expenseCount: parseInt(stats.expense_count || 0),
+        earliestDate: stats.earliest_date,
+        latestDate: stats.latest_date,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching spending stats:', error);
+    return res.status(500).json({ status: 'error', message: 'Failed to fetch spending statistics' });
+  }
+});
+
+// Get user's spending breakdown by month (for charts/analytics)
+app.get('/api/user/spending-breakdown', authMiddleware, async (req, res) => {
+  const userId = req.user.sub;
+
+  try {
+    const result = await pool.query(`
+      SELECT 
+        DATE_TRUNC('month', e.created_at)::date as month,
+        SUM(e.amount) as total_amount,
+        COUNT(e.id) as expense_count
+      FROM expenses e
+      JOIN trips t ON e.trip_id = t.id
+      LEFT JOIN trip_shares ts ON ts.trip_id = t.id
+      WHERE (t.user_id = $1 OR ts.user_id = $1)
+      GROUP BY DATE_TRUNC('month', e.created_at)
+      ORDER BY month DESC
+      LIMIT 12
+    `, [userId]);
+
+    return res.json({
+      status: 'success',
+      data: result.rows.map(row => ({
+        month: row.month,
+        totalAmount: parseFloat(row.total_amount),
+        expenseCount: parseInt(row.expense_count),
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching spending breakdown:', error);
+    return res.status(500).json({ status: 'error', message: 'Failed to fetch spending breakdown' });
+  }
+});
+
 initDb()
   .then(() => {
     app.listen(port, () => {

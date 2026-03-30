@@ -31,8 +31,10 @@ import {
   listTripsApi,
   updateTripApi,
   updateTripSharesApi,
+  getUserSpendingStatsApi,
   type TripShareCandidate,
   type TripSummary,
+  type SpendingStats,
 } from './services/tripService';
 import appLogo from '../assets/S_Logo.png';
 
@@ -170,6 +172,8 @@ function App() {
   const [trackedRangeType, setTrackedRangeType] = useState<'monthly' | 'yearly' | 'custom'>('monthly');
   const [customRangeStart, setCustomRangeStart] = useState('');
   const [customRangeEnd, setCustomRangeEnd] = useState('');
+  const [backendSpendingStats, setBackendSpendingStats] = useState<SpendingStats | null>(null);
+  const [loadingSpendingStats, setLoadingSpendingStats] = useState(false);
   const [loadingTrips, setLoadingTrips] = useState(false);
   const [creatingNewTrip, setCreatingNewTrip] = useState(false);
   const [savingTrip, setSavingTrip] = useState(false);
@@ -477,6 +481,31 @@ function App() {
 
     bootUserSession();
   }, [sessionMode, currentUser]);
+
+  // Fetch spending stats from backend for logged-in users
+  useEffect(() => {
+    if (sessionMode !== 'user') {
+      // Clear spending stats for guest users
+      setBackendSpendingStats(null);
+      return;
+    }
+
+    const fetchSpendingStats = async () => {
+      setLoadingSpendingStats(true);
+      const result = await getUserSpendingStatsApi(
+        trackedRangeType,
+        trackedRangeType === 'custom' ? customRangeStart : undefined,
+        trackedRangeType === 'custom' ? customRangeEnd : undefined
+      );
+
+      if (result.status === 'success' && result.data) {
+        setBackendSpendingStats(result.data);
+      }
+      setLoadingSpendingStats(false);
+    };
+
+    fetchSpendingStats();
+  }, [sessionMode, trackedRangeType, customRangeStart, customRangeEnd]);
 
   useEffect(() => {
     if (sessionMode !== 'guest' || !activeGuestTripId) {
@@ -2252,11 +2281,6 @@ function App() {
   };
 
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const trackedTotalLabel = trackedRangeType === 'monthly'
-    ? 'This Month'
-    : trackedRangeType === 'yearly'
-      ? 'This Year'
-      : 'Custom Range';
 
   const trackedTotal = useMemo(() => {
     const parseExpenseDate = (expense: Expense): Date | null => {
@@ -2782,8 +2806,27 @@ function App() {
                       <option value="custom">Custom</option>
                     </select>
                   </div>
-                  <p className="text-2xl font-bold text-slate-900">${trackedTotal.toFixed(2)}</p>
-                  <p className="text-[11px] text-amber-700">{trackedTotalLabel}</p>
+                  {loadingSpendingStats ? (
+                    <p className="text-2xl font-bold text-slate-600">Loading...</p>
+                  ) : (
+                    <>
+                      <p className="text-2xl font-bold text-slate-900">
+                        ${(backendSpendingStats?.totalAmount || 0).toFixed(2)}
+                      </p>
+                      <p className="text-[11px] text-amber-700">
+                        {trackedRangeType === 'monthly'
+                          ? 'This Month'
+                          : trackedRangeType === 'yearly'
+                          ? 'This Year'
+                          : 'Custom Range'}
+                      </p>
+                      {backendSpendingStats && backendSpendingStats.expenseCount > 0 && (
+                        <p className="text-[11px] text-amber-600 mt-1">
+                          {backendSpendingStats.expenseCount} expense{backendSpendingStats.expenseCount === 1 ? '' : 's'}
+                        </p>
+                      )}
+                    </>
+                  )}
                   {trackedRangeType === 'custom' && (
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       <input
