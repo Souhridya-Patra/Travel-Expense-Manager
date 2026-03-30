@@ -2283,9 +2283,9 @@ function App() {
 
   if (sessionMode === null) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4 flex items-center justify-center">
-        <div className="w-full max-w-md bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">Travel Expense Manager</h1>
+      <div className="ui-shell flex items-center justify-center">
+        <div className="w-full max-w-md bg-white/90 backdrop-blur-md rounded-2xl p-6 shadow-xl border border-slate-200/80">
+          <h1 className="font-display text-3xl font-bold text-slate-800 mb-2 text-center tracking-tight">Travel Expense Manager</h1>
           <p className="text-sm text-gray-600 mb-6 text-center">Login to save trip history on server, or continue as guest with local-only history.</p>
 
           {authView === 'choice' && (
@@ -2415,28 +2415,30 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
-      <div className="max-w-4xl mx-auto">
+    <div className="ui-shell">
+      <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="relative mb-8">
-          {/* Logo and company name in top-left */}
-          <div className="absolute left-0 top-0 flex flex-col items-start">
-            <img
-              src="../../assets/S_Logo.png"
-              alt="App Logo"
-              width={80}
-              className="mb-1"
-            />
-            <span className="text-xs text-gray-500 font-semibold pl-1">SP ByteVerse Pvt. Ltd.</span>
-          </div>
-          {/* App title and subtitle centered */}
-          <div className="flex flex-col items-center">
-            <h1 className="text-4xl font-bold text-gray-800 mb-2">Travel Expense Manager</h1>
-            <p className="text-gray-600">Split expenses fairly among travelers with individual food tracking</p>
+        <div className="ui-card-tight">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <img
+                src="../../assets/S_Logo.png"
+                alt="App Logo"
+                width={64}
+                className="shrink-0"
+              />
+              <div>
+                <span className="text-xs text-slate-500 font-semibold">SP ByteVerse Pvt. Ltd.</span>
+                <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-800 tracking-tight">Travel Expense Manager</h1>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 sm:max-w-sm sm:text-right">
+              Split expenses fairly among travelers with individual food tracking.
+            </p>
           </div>
         </div>
 
-        <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 shadow-xl border border-white/20 mb-6">
+        <div className="ui-card-tight">
           <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:justify-between">
             <div className="text-sm text-gray-700">
               {sessionMode === 'user' ? (
@@ -2453,7 +2455,7 @@ function App() {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
               {sessionMode === 'user' ? (
                 <>
                   <select
@@ -2579,7 +2581,7 @@ function App() {
           {tripStatus && <p className="mt-2 text-sm text-gray-700">{tripStatus}</p>}
         </div>
 
-        <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+        <div className="ui-card">
           <h2 className="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <History className="w-5 h-5 text-indigo-600" />
             Past Trips
@@ -2640,7 +2642,7 @@ function App() {
         </div>
 
         {/* Setup Section */}
-        <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+        <div className="ui-card">
           <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Users className="w-6 h-6 text-blue-600" />
             Trip Setup
@@ -2869,7 +2871,7 @@ function App() {
 
         {/* Receipt Scan Section */}
         {payers.length > 0 && (
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+          <div className="ui-card">
             <h2 className="text-2xl font-semibold text-gray-800 mb-2 flex items-center gap-2">
               <ScanLine className="w-6 h-6 text-purple-600" />
               Receipt Scan (Beta)
@@ -3121,7 +3123,7 @@ function App() {
 
         {/* Receipt History Section
         {payers.length > 0 && (
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+          <div className="ui-card">
             <div className="flex items-center justify-between gap-3 mb-4">
               <h2 className="text-2xl font-semibold text-gray-800 flex items-center gap-2">
                 <Receipt className="w-6 h-6 text-indigo-600" />
@@ -3180,7 +3182,7 @@ function App() {
 
         {/* Add Expense Section */}
         {payers.length > 0 && (
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+          <div className="ui-card">
             <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
               <Receipt className="w-6 h-6 text-green-600" />
               Add Expense
@@ -3335,7 +3337,7 @@ function App() {
 
         {/* Expenses List */}
         {expenses.length > 0 && (
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+          <div className="ui-card">
             <h2 className="text-2xl font-semibold text-gray-800 mb-4">Expense List</h2>
             
             <div className="space-y-3">
@@ -3422,7 +3424,7 @@ function App() {
 
         {/* Phase 3.3 Analytics Panel */}
         {(expenses.length > 0 || receiptHistory.length > 0) && (
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20 mb-6">
+          <div className="ui-card">
             <h2 className="text-2xl font-semibold text-gray-800 mb-4">Phase 3.3 Analytics</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -3502,7 +3504,7 @@ function App() {
 
         {/* Results Section */}
         {showResults && (
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
+          <div className="ui-card">
             <h2 className="text-2xl font-semibold text-gray-800 mb-4">Settlement Results</h2>
             
             {settlements.length === 0 ? (
