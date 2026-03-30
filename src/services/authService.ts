@@ -7,9 +7,10 @@ export interface AuthUser {
 }
 
 interface AuthApiResult {
-  status: 'success' | 'error';
+  status: 'success' | 'pending_otp' | 'error';
   token?: string;
   user?: AuthUser;
+  email?: string;
   message?: string;
 }
 
@@ -35,7 +36,22 @@ export async function registerWithEmail(payload: {
 
     const data = await parseJson(response);
     if (!response.ok) {
+      if (data.status === 'pending_otp') {
+        return {
+          status: 'pending_otp',
+          email: data.email,
+          message: data.message,
+        };
+      }
       return { status: 'error', message: data.message || `HTTP ${response.status}` };
+    }
+
+    if (data.status === 'pending_otp') {
+      return {
+        status: 'pending_otp',
+        email: data.email,
+        message: data.message,
+      };
     }
 
     return {
@@ -47,6 +63,70 @@ export async function registerWithEmail(payload: {
     return {
       status: 'error',
       message: error instanceof Error ? error.message : 'Register failed',
+    };
+  }
+}
+
+export async function verifyOtp(payload: {
+  email: string;
+  otp: string;
+}): Promise<AuthApiResult> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await parseJson(response);
+    if (!response.ok) {
+      if (data.status === 'pending_otp') {
+        return {
+          status: 'pending_otp',
+          email: data.email,
+          message: data.message,
+        };
+      }
+      return { status: 'error', message: data.message || `HTTP ${response.status}` };
+    }
+
+    return {
+      status: 'success',
+      token: data.token,
+      user: data.user,
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'OTP verification failed',
+    };
+  }
+}
+
+export async function resendOtp(payload: {
+  email: string;
+}): Promise<AuthApiResult> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/resend-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await parseJson(response);
+    if (!response.ok) {
+      return { status: 'error', message: data.message || `HTTP ${response.status}` };
+    }
+
+    return {
+      status: 'pending_otp',
+      email: data.email,
+      message: data.message,
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'OTP resend failed',
     };
   }
 }

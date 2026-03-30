@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 import { OAuth2Client } from 'google-auth-library';
 import { pool, initDb } from './db.js';
 import { authMiddleware, signToken } from './auth.js';
@@ -11,6 +12,22 @@ const app = express();
 const port = Number(process.env.PORT || 8002);
 const googleClientId = process.env.GOOGLE_CLIENT_ID || '428178433259-totcan3sf49k76b5kt42q8so76imbtfu.apps.googleusercontent.com';
 const googleClient = new OAuth2Client(googleClientId);
+const otpExpiryMinutes = Number(process.env.OTP_EXPIRY_MINUTES || 10);
+const mailFrom = process.env.MAIL_FROM || 'no-reply@travel-expense-manager.local';
+const mailHost = process.env.MAIL_HOST;
+const mailPort = Number(process.env.MAIL_PORT || 587);
+const mailUser = process.env.MAIL_USER;
+const mailPass = process.env.MAIL_PASS;
+const mailSecure = process.env.MAIL_SECURE === 'true';
+
+const otpTransport = mailHost
+  ? nodemailer.createTransport({
+      host: mailHost,
+      port: mailPort,
+      secure: mailSecure,
+      auth: mailUser && mailPass ? { user: mailUser, pass: mailPass } : undefined,
+    })
+  : nodemailer.createTransport({ jsonTransport: true });
 
 const allowedOrigins = (process.env.CORS_ORIGIN ||
   'http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173')
@@ -20,6 +37,27 @@ const allowedOrigins = (process.env.CORS_ORIGIN ||
 
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: '10mb' }));
+
+const generateOtpCode = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+const getOtpExpiryAt = () => {
+  const expiry = new Date();
+  expiry.setMinutes(expiry.getMinutes() + otpExpiryMinutes);
+  return expiry;
+};
+
+const sendOtpEmail = async (email, otp) => {
+  const info = await otpTransport.sendMail({
+    from: mailFrom,
+    to: email,
+    subject: 'Travel Expense Manager verification code',
+    text: `Welcome to Travel Expense Manager! Your verification code is: ${otp}`,
+  });
+
+  if (!mailHost) {
+    console.log('OTP email preview (jsonTransport):', info.message);
+  }
+};
 
 const assertTripAccess = async (tripId, userId) => {
   const trip = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
@@ -36,17 +74,24 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ message: 'name, email and password are required' });
   }
 
+  const normalizedEmail = email.toLowerCase();
   const passwordHash = await bcrypt.hash(password, 10);
+  const otp = generateOtpCode();
+  const otpExpiresAt = getOtpExpiryAt();
 
   try {
-    const result = await pool.query(
-      `INSERT INTO users(name, email, password_hash) VALUES($1, $2, $3) RETURNING id, name, email`,
-      [name, email.toLowerCase(), passwordHash]
+    await pool.query(
+      `INSERT INTO users(name, email, password_hash, is_verified, otp_code, otp_expires_at)
+       VALUES($1, $2, $3, FALSE, $4, $5)`,
+      [name, normalizedEmail, passwordHash, otp, otpExpiresAt]
     );
 
-    const user = result.rows[0];
-    const token = signToken({ sub: user.id, email: user.email });
-    return res.status(201).json({ token, user });
+    await sendOtpEmail(normalizedEmail, otp);
+    return res.status(201).json({
+      status: 'pending_otp',
+      email: normalizedEmail,
+      message: 'Verification code sent to your email.',
+    });
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({ message: 'Email already registered' });
@@ -55,13 +100,102 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+app.post('/api/auth/verify-otp', async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ message: 'email and otp are required' });
+  }
+
+  if (!/^\d{6}$/.test(String(otp).trim())) {
+    return res.status(400).json({ message: 'OTP must be a 6-digit code' });
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  const userResult = await pool.query(
+    `SELECT id, name, email, is_verified, otp_code, otp_expires_at
+     FROM users WHERE email = $1`,
+    [normalizedEmail]
+  );
+
+  if (userResult.rowCount === 0) {
+    return res.status(404).json({ message: 'Account not found' });
+  }
+
+  const user = userResult.rows[0];
+  if (user.is_verified) {
+    const token = signToken({ sub: user.id, email: user.email });
+    return res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+  }
+
+  if (!user.otp_code || !user.otp_expires_at) {
+    return res.status(400).json({ message: 'Verification code missing. Please request a new code.' });
+  }
+
+  if (String(otp).trim() !== String(user.otp_code)) {
+    return res.status(400).json({ message: 'Invalid verification code' });
+  }
+
+  if (new Date() > new Date(user.otp_expires_at)) {
+    return res.status(400).json({ message: 'Verification code expired. Please request a new code.' });
+  }
+
+  await pool.query(
+    `UPDATE users
+     SET is_verified = TRUE,
+         otp_code = NULL,
+         otp_expires_at = NULL
+     WHERE id = $1`,
+    [user.id]
+  );
+
+  const token = signToken({ sub: user.id, email: user.email });
+  return res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+});
+
+app.post('/api/auth/resend-otp', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ message: 'email is required' });
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  const userResult = await pool.query(
+    `SELECT id, is_verified FROM users WHERE email = $1`,
+    [normalizedEmail]
+  );
+
+  if (userResult.rowCount === 0) {
+    return res.status(404).json({ message: 'Account not found' });
+  }
+
+  if (userResult.rows[0].is_verified) {
+    return res.status(400).json({ message: 'This account is already verified. Please log in.' });
+  }
+
+  const otp = generateOtpCode();
+  const otpExpiresAt = getOtpExpiryAt();
+
+  await pool.query(
+    `UPDATE users SET otp_code = $1, otp_expires_at = $2 WHERE id = $3`,
+    [otp, otpExpiresAt, userResult.rows[0].id]
+  );
+
+  await sendOtpEmail(normalizedEmail, otp);
+
+  return res.json({
+    status: 'pending_otp',
+    email: normalizedEmail,
+    message: 'A new verification code was sent to your email.',
+  });
+});
+
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ message: 'email and password are required' });
   }
 
-  const result = await pool.query(`SELECT id, name, email, password_hash FROM users WHERE email = $1`, [
+  const result = await pool.query(`SELECT id, name, email, password_hash, is_verified FROM users WHERE email = $1`, [
     email.toLowerCase()
   ]);
 
@@ -73,6 +207,14 @@ app.post('/api/auth/login', async (req, res) => {
   const isValid = await bcrypt.compare(password, user.password_hash);
   if (!isValid) {
     return res.status(401).json({ message: 'Invalid email or password' });
+  }
+
+  if (!user.is_verified) {
+    return res.status(403).json({
+      status: 'pending_otp',
+      email: user.email,
+      message: 'Email not verified. Please enter your verification code or resend one.',
+    });
   }
 
   const token = signToken({ sub: user.id, email: user.email });
@@ -100,7 +242,7 @@ app.post('/api/auth/google', async (req, res) => {
     }
 
     let userResult = await pool.query(
-      `SELECT id, name, email FROM users WHERE email = $1`,
+      `SELECT id, name, email, is_verified FROM users WHERE email = $1`,
       [email]
     );
 
@@ -108,10 +250,23 @@ app.post('/api/auth/google', async (req, res) => {
       const randomPassword = crypto.randomBytes(32).toString('hex');
       const passwordHash = await bcrypt.hash(randomPassword, 10);
       userResult = await pool.query(
-        `INSERT INTO users(name, email, password_hash)
-         VALUES($1, $2, $3)
-         RETURNING id, name, email`,
+        `INSERT INTO users(name, email, password_hash, is_verified)
+         VALUES($1, $2, $3, TRUE)
+         RETURNING id, name, email, is_verified`,
         [name, email, passwordHash]
+      );
+    } else if (!userResult.rows[0].is_verified) {
+      await pool.query(
+        `UPDATE users
+         SET is_verified = TRUE,
+             otp_code = NULL,
+             otp_expires_at = NULL
+         WHERE id = $1`,
+        [userResult.rows[0].id]
+      );
+      userResult = await pool.query(
+        `SELECT id, name, email, is_verified FROM users WHERE id = $1`,
+        [userResult.rows[0].id]
       );
     }
 

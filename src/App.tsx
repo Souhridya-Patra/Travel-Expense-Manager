@@ -18,7 +18,9 @@ import {
 import {
   loginWithEmail,
   loginWithGoogleIdToken,
+  resendOtp,
   registerWithEmail,
+  verifyOtp,
   type AuthUser,
 } from './services/authService';
 import {
@@ -75,7 +77,7 @@ interface GuestTripSnapshot {
 }
 
 type SessionMode = 'user' | 'guest' | null;
-type AuthView = 'choice' | 'login' | 'signup';
+type AuthView = 'choice' | 'login' | 'signup' | 'verifyOtp';
 
 const STORAGE_KEYS = {
   mode: 'sessionMode',
@@ -138,6 +140,8 @@ function App() {
   const [authStatus, setAuthStatus] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
+  const [otpCode, setOtpCode] = useState('');
+  const [pendingOtpEmail, setPendingOtpEmail] = useState('');
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [serverTrips, setServerTrips] = useState<TripSummary[]>([]);
   const [guestTrips, setGuestTrips] = useState<GuestTripSnapshot[]>([]);
@@ -731,6 +735,11 @@ function App() {
       setAuthLoading(false);
       if (result.status === 'success' && result.token && result.user) {
         applyAuthSuccess(result.token, result.user);
+      } else if (result.status === 'pending_otp' && result.email) {
+        setPendingOtpEmail(result.email);
+        setOtpCode('');
+        setAuthView('verifyOtp');
+        setAuthStatus(result.message || 'Please verify your email with the OTP we sent.');
       } else {
         setAuthStatus(result.message || 'Login failed');
       }
@@ -744,8 +753,11 @@ function App() {
         password: authForm.password,
       });
       setAuthLoading(false);
-      if (result.status === 'success' && result.token && result.user) {
-        applyAuthSuccess(result.token, result.user);
+      if (result.status === 'pending_otp' && result.email) {
+        setPendingOtpEmail(result.email);
+        setOtpCode('');
+        setAuthView('verifyOtp');
+        setAuthStatus(result.message || 'Verification code sent. Please check your email.');
       } else {
         setAuthStatus(result.message || 'Signup failed');
       }
@@ -753,6 +765,49 @@ function App() {
     }
 
     setAuthLoading(false);
+  };
+
+  const handleOtpVerify = async () => {
+    if (!pendingOtpEmail) {
+      setAuthStatus('Missing verification email. Please sign up again.');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthStatus(null);
+    const result = await verifyOtp({
+      email: pendingOtpEmail.trim(),
+      otp: otpCode.trim(),
+    });
+    setAuthLoading(false);
+
+    if (result.status === 'success' && result.token && result.user) {
+      setPendingOtpEmail('');
+      setOtpCode('');
+      applyAuthSuccess(result.token, result.user);
+      return;
+    }
+
+    setAuthStatus(result.message || 'OTP verification failed');
+  };
+
+  const handleResendOtp = async () => {
+    if (!pendingOtpEmail) {
+      setAuthStatus('Missing verification email. Please sign up again.');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthStatus(null);
+    const result = await resendOtp({ email: pendingOtpEmail.trim() });
+    setAuthLoading(false);
+
+    if (result.status === 'pending_otp') {
+      setAuthStatus(result.message || 'A new verification code was sent.');
+      return;
+    }
+
+    setAuthStatus(result.message || 'Could not resend verification code.');
   };
 
   const enterGuestMode = () => {
@@ -795,6 +850,8 @@ function App() {
     setServerTrips([]);
     setAuthView('choice');
     setAuthForm({ name: '', email: '', password: '' });
+    setOtpCode('');
+    setPendingOtpEmail('');
     setAuthStatus(null);
     localStorage.removeItem(STORAGE_KEYS.mode);
     localStorage.removeItem(STORAGE_KEYS.token);
@@ -2056,6 +2113,50 @@ function App() {
                 className="w-full px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
               >
                 Back
+              </button>
+            </div>
+          )}
+
+          {authView === 'verifyOtp' && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-700">
+                We sent a 6-digit code to <span className="font-semibold">{pendingOtpEmail}</span>.
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="Enter 6-digit code"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+
+              <button
+                onClick={handleOtpVerify}
+                disabled={authLoading || otpCode.trim().length !== 6}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-60"
+              >
+                {authLoading ? 'Please wait...' : 'Verify'}
+              </button>
+
+              <button
+                onClick={handleResendOtp}
+                disabled={authLoading}
+                className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all disabled:opacity-60"
+              >
+                Resend Verification Code
+              </button>
+
+              <button
+                onClick={() => {
+                  setAuthView('signup');
+                  setOtpCode('');
+                  setAuthStatus(null);
+                }}
+                className="w-full px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+              >
+                Back to Sign Up
               </button>
             </div>
           )}
