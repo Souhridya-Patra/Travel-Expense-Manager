@@ -5,6 +5,15 @@ export interface TripSummary {
   name: string;
   members: unknown;
   created_at: string;
+  access_type?: 'owner' | 'shared';
+  owner_name?: string;
+}
+
+export interface TripShareCandidate {
+  name: string;
+  email: string;
+  hasAccount: boolean;
+  selected: boolean;
 }
 
 export interface ApiExpense {
@@ -36,6 +45,10 @@ interface ExpenseListResult extends TripApiResult {
 
 interface CreateExpenseResult extends TripApiResult {
   expense?: ApiExpense;
+}
+
+interface TripShareCandidatesResult extends TripApiResult {
+  candidates: TripShareCandidate[];
 }
 
 const getAuthToken = () => localStorage.getItem('authToken') || localStorage.getItem('token') || '';
@@ -193,6 +206,65 @@ export async function createTripExpenseApi(
     return {
       status: 'error',
       message: error instanceof Error ? error.message : 'Failed to save expense',
+    };
+  }
+}
+
+export async function listTripShareCandidatesApi(tripId: string): Promise<TripShareCandidatesResult> {
+  const token = getAuthToken();
+  if (!token) {
+    return { status: 'error', candidates: [], message: 'Missing token' };
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}/share-candidates`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await parseJson(response);
+    if (!response.ok) {
+      return { status: 'error', candidates: [], message: data.message || `HTTP ${response.status}` };
+    }
+
+    return {
+      status: 'success',
+      candidates: Array.isArray(data.candidates) ? data.candidates : [],
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      candidates: [],
+      message: error instanceof Error ? error.message : 'Failed to load share candidates',
+    };
+  }
+}
+
+export async function updateTripSharesApi(tripId: string, emails: string[]): Promise<TripApiResult> {
+  const token = getAuthToken();
+  if (!token) {
+    return { status: 'error', message: 'Missing token' };
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}/shares`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ emails }),
+    });
+
+    const data = await parseJson(response);
+    if (!response.ok) {
+      return { status: 'error', message: data.message || `HTTP ${response.status}` };
+    }
+
+    return { status: 'success' };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to update trip sharing',
     };
   }
 }

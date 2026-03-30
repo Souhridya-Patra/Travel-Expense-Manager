@@ -60,6 +60,18 @@ const sendOtpEmail = async (email, otp) => {
 };
 
 const assertTripAccess = async (tripId, userId) => {
+  const trip = await pool.query(
+    `SELECT t.id
+     FROM trips t
+     LEFT JOIN trip_shares ts ON ts.trip_id = t.id
+     WHERE t.id = $1 AND (t.user_id = $2 OR ts.user_id = $2)
+     LIMIT 1`,
+    [tripId, userId]
+  );
+  return trip.rowCount > 0;
+};
+
+const assertTripOwner = async (tripId, userId) => {
   const trip = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
   return trip.rowCount > 0;
 };
@@ -279,9 +291,24 @@ app.post('/api/auth/google', async (req, res) => {
 });
 
 app.get('/api/trips', authMiddleware, async (req, res) => {
-  const result = await pool.query(`SELECT id, name, members, created_at FROM trips WHERE user_id = $1 ORDER BY created_at DESC`, [
-    req.user.sub
-  ]);
+  const result = await pool.query(
+    `SELECT * FROM (
+       SELECT t.id, t.name, t.members, t.created_at, 'owner'::text AS access_type, u.name AS owner_name
+       FROM trips t
+       JOIN users u ON u.id = t.user_id
+       WHERE t.user_id = $1
+
+       UNION
+
+       SELECT t.id, t.name, t.members, t.created_at, 'shared'::text AS access_type, u.name AS owner_name
+       FROM trips t
+       JOIN users u ON u.id = t.user_id
+       JOIN trip_shares ts ON ts.trip_id = t.id
+       WHERE ts.user_id = $1
+     ) trip_list
+     ORDER BY created_at DESC`,
+    [req.user.sub]
+  );
   res.json({ trips: result.rows });
 });
 
@@ -302,9 +329,9 @@ app.patch('/api/trips/:tripId', authMiddleware, async (req, res) => {
   const { tripId } = req.params;
   const { name, members } = req.body;
 
-  const hasAccess = await assertTripAccess(tripId, req.user.sub);
-  if (!hasAccess) {
-    return res.status(404).json({ message: 'Trip not found' });
+  const isOwner = await assertTripOwner(tripId, req.user.sub);
+  if (!isOwner) {
+    return res.status(403).json({ message: 'Only the trip owner can update trip setup' });
   }
 
   const result = await pool.query(
@@ -326,6 +353,133 @@ app.patch('/api/trips/:tripId', authMiddleware, async (req, res) => {
   }
 
   return res.json({ trip: result.rows[0] });
+});
+
+app.get('/api/trips/:tripId/share-candidates', authMiddleware, async (req, res) => {
+  const { tripId } = req.params;
+
+  const isOwner = await assertTripOwner(tripId, req.user.sub);
+  if (!isOwner) {
+    return res.status(403).json({ message: 'Only the trip owner can manage sharing' });
+  }
+
+  const tripResult = await pool.query(`SELECT members FROM trips WHERE id = $1`, [tripId]);
+  if (tripResult.rowCount === 0) {
+    return res.status(404).json({ message: 'Trip not found' });
+  }
+
+  const members = tripResult.rows[0].members && typeof tripResult.rows[0].members === 'object'
+    ? tripResult.rows[0].members
+    : {};
+
+  const travelers = Array.isArray(members.travelers)
+    ? members.travelers
+      .map((traveler) => {
+        if (!traveler || typeof traveler !== 'object') {
+          return null;
+        }
+        const name = String(traveler.name || '').trim();
+        const email = String(traveler.email || '').trim().toLowerCase();
+        if (!name || !email) {
+          return null;
+        }
+        return { name, email };
+      })
+      .filter(Boolean)
+    : [];
+
+  const travelerEmails = [...new Set(travelers.map((traveler) => traveler.email))];
+  const userRows = travelerEmails.length > 0
+    ? await pool.query(
+      `SELECT id, name, email, is_verified FROM users WHERE email = ANY($1::text[])`,
+      [travelerEmails]
+    )
+    : { rows: [] };
+
+  const accountByEmail = new Map(userRows.rows.map((row) => [String(row.email).toLowerCase(), row]));
+
+  const selectedRows = await pool.query(
+    `SELECT u.email
+     FROM trip_shares ts
+     JOIN users u ON u.id = ts.user_id
+     WHERE ts.trip_id = $1`,
+    [tripId]
+  );
+  const selectedSet = new Set(selectedRows.rows.map((row) => String(row.email).toLowerCase()));
+
+  const candidates = travelers.map((traveler) => {
+    const account = accountByEmail.get(traveler.email);
+    return {
+      name: traveler.name,
+      email: traveler.email,
+      hasAccount: Boolean(account && account.is_verified),
+      selected: selectedSet.has(traveler.email),
+    };
+  });
+
+  return res.json({ candidates });
+});
+
+app.put('/api/trips/:tripId/shares', authMiddleware, async (req, res) => {
+  const { tripId } = req.params;
+  const { emails } = req.body;
+
+  if (!Array.isArray(emails)) {
+    return res.status(400).json({ message: 'emails must be an array' });
+  }
+
+  const isOwner = await assertTripOwner(tripId, req.user.sub);
+  if (!isOwner) {
+    return res.status(403).json({ message: 'Only the trip owner can update sharing' });
+  }
+
+  const ownerResult = await pool.query(`SELECT user_id FROM trips WHERE id = $1`, [tripId]);
+  if (ownerResult.rowCount === 0) {
+    return res.status(404).json({ message: 'Trip not found' });
+  }
+  const ownerUserId = ownerResult.rows[0].user_id;
+
+  const normalizedEmails = [...new Set(
+    emails
+      .map((email) => String(email || '').trim().toLowerCase())
+      .filter((email) => email.length > 0)
+  )];
+
+  const usersResult = normalizedEmails.length > 0
+    ? await pool.query(
+      `SELECT id, email, is_verified
+       FROM users
+       WHERE email = ANY($1::text[])`,
+      [normalizedEmails]
+    )
+    : { rows: [] };
+
+  const verifiedUserIds = usersResult.rows
+    .filter((user) => Boolean(user.is_verified))
+    .map((user) => user.id)
+    .filter((userId) => userId !== ownerUserId);
+
+  await pool.query('BEGIN');
+  try {
+    await pool.query(`DELETE FROM trip_shares WHERE trip_id = $1`, [tripId]);
+
+    for (const userId of verifiedUserIds) {
+      await pool.query(
+        `INSERT INTO trip_shares(trip_id, user_id) VALUES($1, $2) ON CONFLICT DO NOTHING`,
+        [tripId, userId]
+      );
+    }
+
+    await pool.query('COMMIT');
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    return res.status(500).json({ message: 'Failed to update shared users' });
+  }
+
+  return res.json({
+    sharedCount: verifiedUserIds.length,
+    sharedEmails: usersResult.rows.filter((row) => Boolean(row.is_verified)).map((row) => row.email),
+  });
 });
 
 app.get('/api/trips/:tripId/expenses', authMiddleware, async (req, res) => {
@@ -353,9 +507,9 @@ app.post('/api/trips/:tripId/expenses', authMiddleware, async (req, res) => {
     return res.status(400).json({ message: 'description, amount and paidBy are required' });
   }
 
-  const hasAccess = await assertTripAccess(tripId, req.user.sub);
-  if (!hasAccess) {
-    return res.status(404).json({ message: 'Trip not found' });
+  const isOwner = await assertTripOwner(tripId, req.user.sub);
+  if (!isOwner) {
+    return res.status(403).json({ message: 'Shared users can view this trip but cannot add expenses' });
   }
 
   const inserted = await pool.query(
@@ -396,9 +550,9 @@ app.post('/api/trips/:tripId/receipts', authMiddleware, async (req, res) => {
     parsedItems = []
   } = req.body;
 
-  const hasAccess = await assertTripAccess(tripId, req.user.sub);
-  if (!hasAccess) {
-    return res.status(404).json({ message: 'Trip not found' });
+  const isOwner = await assertTripOwner(tripId, req.user.sub);
+  if (!isOwner) {
+    return res.status(403).json({ message: 'Shared users can view this trip but cannot add receipts' });
   }
 
   if (!Array.isArray(parsedItems)) {
@@ -436,9 +590,9 @@ app.patch('/api/trips/:tripId/receipts/:receiptId', authMiddleware, async (req, 
     parsedItems
   } = req.body;
 
-  const hasAccess = await assertTripAccess(tripId, req.user.sub);
-  if (!hasAccess) {
-    return res.status(404).json({ message: 'Trip not found' });
+  const isOwner = await assertTripOwner(tripId, req.user.sub);
+  if (!isOwner) {
+    return res.status(403).json({ message: 'Shared users can view this trip but cannot edit receipts' });
   }
 
   if (parsedItems !== undefined && !Array.isArray(parsedItems)) {

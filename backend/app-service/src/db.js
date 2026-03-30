@@ -30,6 +30,13 @@ export const initDb = async () => {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS trip_shares (
+      trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (trip_id, user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS expenses (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,

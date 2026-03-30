@@ -26,9 +26,12 @@ import {
 import {
   createTripApi,
   createTripExpenseApi,
+  listTripShareCandidatesApi,
   listTripExpensesApi,
   listTripsApi,
   updateTripApi,
+  updateTripSharesApi,
+  type TripShareCandidate,
   type TripSummary,
 } from './services/tripService';
 
@@ -63,12 +66,19 @@ interface SelectionRect {
   height: number;
 }
 
+interface Traveler {
+  name: string;
+  email: string;
+}
+
 interface GuestTripSnapshot {
   id: string;
   name: string;
   updatedAt: string;
   totalPeople: number;
   travelerNames: string[];
+  travelers: Traveler[];
+  travelersFinalized: boolean;
   payers: string[];
   responsibleParties: Record<string, string>;
   expenses: Expense[];
@@ -102,6 +112,8 @@ function App() {
   const [totalPeople, setTotalPeople] = useState<number>(0);
   const [payers, setPayers] = useState<string[]>([]);
   const [travelerNames, setTravelerNames] = useState<string[]>([]);
+  const [travelers, setTravelers] = useState<Traveler[]>([{ name: '', email: '' }]);
+  const [travelersFinalized, setTravelersFinalized] = useState(false);
   const [responsibleParties, setResponsibleParties] = useState<Record<string, string>>({});
   const [nextPayerName, setNextPayerName] = useState<string>('');
   const [useTravelerChooserForPayers, setUseTravelerChooserForPayers] = useState(false);
@@ -144,6 +156,9 @@ function App() {
   const [pendingOtpEmail, setPendingOtpEmail] = useState('');
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [serverTrips, setServerTrips] = useState<TripSummary[]>([]);
+  const [activeTripAccessType, setActiveTripAccessType] = useState<'owner' | 'shared'>('owner');
+  const [shareCandidates, setShareCandidates] = useState<TripShareCandidate[]>([]);
+  const [updatingShares, setUpdatingShares] = useState(false);
   const [guestTrips, setGuestTrips] = useState<GuestTripSnapshot[]>([]);
   const [activeTripId, setActiveTripId] = useState<string | null>(null);
   const [activeGuestTripId, setActiveGuestTripId] = useState<string | null>(null);
@@ -157,17 +172,22 @@ function App() {
   const [renameTripDraft, setRenameTripDraft] = useState('');
   const receiptImageRef = useRef<HTMLImageElement | null>(null);
   const expenseDescriptionRef = useRef<HTMLInputElement | null>(null);
-  const totalTravelersInputRef = useRef<HTMLInputElement | null>(null);
+  const firstTravelerNameInputRef = useRef<HTMLInputElement | null>(null);
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    totalTravelersInputRef.current?.focus();
+    firstTravelerNameInputRef.current?.focus();
   }, []);
 
+  const canEditActiveServerTrip = sessionMode !== 'user' || activeTripAccessType === 'owner';
+  const isTripReadOnly = sessionMode === 'user' && !canEditActiveServerTrip;
+
   const resetTripState = () => {
-    setTotalPeople(0);
+    setTotalPeople(1);
     setPayers([]);
-    setTravelerNames([]);
+    setTravelerNames(['']);
+    setTravelers([{ name: '', email: '' }]);
+    setTravelersFinalized(false);
     setResponsibleParties({});
     setAllPeople([]);
     setExpenses([]);
@@ -178,6 +198,8 @@ function App() {
     setFoodTip('');
     setReceiptHistory([]);
     setReceiptHistoryStatus(null);
+    setShareCandidates([]);
+    setActiveTripAccessType('owner');
   };
 
   const buildAutoTripName = () => {
@@ -193,6 +215,8 @@ function App() {
     updatedAt: new Date().toISOString(),
     totalPeople,
     travelerNames,
+    travelers,
+    travelersFinalized,
     payers,
     responsibleParties,
     expenses,
@@ -202,12 +226,24 @@ function App() {
 
   const loadTripDetails = async (trip: TripSummary) => {
     setActiveTripId(trip.id);
+    setActiveTripAccessType(trip.access_type === 'shared' ? 'shared' : 'owner');
     localStorage.setItem(STORAGE_KEYS.activeTripId, trip.id);
 
     const members = trip.members && typeof trip.members === 'object' ? trip.members as Record<string, unknown> : null;
-    const memberTotal = Number(members?.totalPeople || 0);
+    const memberTravelersObject = Array.isArray(members?.travelers)
+      ? (members?.travelers as Array<Record<string, unknown>>)
+        .map((traveler) => ({
+          name: String(traveler?.name || '').trim(),
+          email: String(traveler?.email || '').trim().toLowerCase(),
+        }))
+      : [];
     const memberTravelers = Array.isArray(members?.travelerNames) ? members?.travelerNames as string[] : [];
+    const resolvedTravelers = memberTravelersObject.length > 0
+      ? memberTravelersObject
+      : memberTravelers.map((name) => ({ name, email: '' }));
+    const memberTotal = Math.max(Number(members?.totalPeople || 0), resolvedTravelers.length, 1);
     const memberPayers = Array.isArray(members?.payers) ? members?.payers as string[] : [];
+    const memberTravelersFinalized = Boolean(members?.travelersFinalized);
     const memberResponsibleParties = members?.responsibleParties && typeof members.responsibleParties === 'object'
       ? members.responsibleParties as Record<string, string>
       : {};
@@ -215,20 +251,39 @@ function App() {
     if (memberTotal > 0) {
       setTotalPeople(memberTotal);
       // Keep all traveler names (ensure at least memberTotal slots)
-      const travelersToSet = [...memberTravelers];
+      const travelersToSet = resolvedTravelers.map((traveler) => traveler.name);
       while (travelersToSet.length < memberTotal) {
         travelersToSet.push('');
       }
       setTravelerNames(travelersToSet.slice(0, memberTotal));
+      const travelerObjectsToSet = [...resolvedTravelers];
+      while (travelerObjectsToSet.length < memberTotal) {
+        travelerObjectsToSet.push({ name: '', email: '' });
+      }
+      setTravelers(travelerObjectsToSet.slice(0, memberTotal));
+      setTravelersFinalized(memberTravelersFinalized);
       // Keep all payers - do NOT slice to memberTotal
       setPayers(memberPayers);
       setResponsibleParties(memberResponsibleParties);
     } else {
       // Ensure no stale member state is carried over between trips
-      setTotalPeople(0);
-      setTravelerNames([]);
+      setTotalPeople(1);
+      setTravelerNames(['']);
+      setTravelers([{ name: '', email: '' }]);
+      setTravelersFinalized(false);
       setPayers([]);
       setResponsibleParties({});
+    }
+
+    if (trip.access_type !== 'shared') {
+      const shareResult = await listTripShareCandidatesApi(trip.id);
+      if (shareResult.status === 'success') {
+        setShareCandidates(shareResult.candidates);
+      } else {
+        setShareCandidates([]);
+      }
+    } else {
+      setShareCandidates([]);
     }
 
     const expenseResult = await listTripExpensesApi(trip.id);
@@ -272,12 +327,16 @@ function App() {
   const createAndActivateTrip = async (membersOverride?: {
     totalPeople: number;
     travelerNames: string[];
+    travelers: Traveler[];
+    travelersFinalized: boolean;
     payers: string[];
     responsibleParties: Record<string, string>;
   }) => {
     const membersPayload = membersOverride ?? {
       totalPeople,
       travelerNames,
+      travelers,
+      travelersFinalized,
       payers,
       responsibleParties,
     };
@@ -329,6 +388,8 @@ function App() {
         setActiveGuestTripId(selected.id);
         setTotalPeople(selected.totalPeople);
         setTravelerNames(selected.travelerNames || []);
+        setTravelers(selected.travelers || (selected.travelerNames || []).map((name) => ({ name, email: '' })));
+        setTravelersFinalized(Boolean(selected.travelersFinalized));
         setPayers(selected.payers || []);
         setResponsibleParties(selected.responsibleParties || {});
         setExpenses(selected.expenses || []);
@@ -357,8 +418,10 @@ function App() {
         await loadTripDetails(selectedTrip);
       } else {
         await createAndActivateTrip({
-          totalPeople: 0,
-          travelerNames: [],
+          totalPeople: 1,
+          travelerNames: [''],
+          travelers: [{ name: currentUser?.name || '', email: currentUser?.email || '' }],
+          travelersFinalized: false,
           payers: [],
           responsibleParties: {},
         });
@@ -387,12 +450,24 @@ function App() {
     activeGuestTripId,
     totalPeople,
     travelerNames,
+    travelers,
+    travelersFinalized,
     payers,
     responsibleParties,
     expenses,
     settlements,
     receiptHistory,
   ]);
+
+  useEffect(() => {
+    if (sessionMode !== 'user' || !currentUser) {
+      return;
+    }
+
+    if (travelers.length === 1 && !travelers[0].name.trim() && !travelers[0].email.trim()) {
+      setTravelers([{ name: currentUser.name, email: currentUser.email.toLowerCase() }]);
+    }
+  }, [sessionMode, currentUser, travelers]);
 
   useEffect(() => {
     if (sessionMode !== null || authView === 'choice' || !googleButtonRef.current) {
@@ -457,6 +532,13 @@ function App() {
     }
   }, [authView, sessionMode]);
 
+  useEffect(() => {
+    const normalizedTravelers = travelers.length > 0 ? travelers : [{ name: '', email: '' }];
+    const names = normalizedTravelers.map((traveler) => traveler.name || '');
+    setTravelerNames(names);
+    setTotalPeople(normalizedTravelers.length);
+  }, [travelers]);
+
   // Update all people list when total people changes
   useEffect(() => {
     const newAllPeople = [];
@@ -478,23 +560,7 @@ function App() {
   }, [totalPeople, travelerNames]);
 
   useEffect(() => {
-    setTravelerNames((currentNames) => {
-      if (totalPeople <= 0) {
-        return [];
-      }
-      const resized = [...currentNames];
-      if (resized.length > totalPeople) {
-        resized.length = totalPeople;
-      }
-      while (resized.length < totalPeople) {
-        resized.push('');
-      }
-      return resized;
-    });
-  }, [totalPeople]);
-
-  useEffect(() => {
-    if (sessionMode !== 'user' || !activeTripId) {
+    if (sessionMode !== 'user' || !activeTripId || !canEditActiveServerTrip) {
       return;
     }
 
@@ -503,6 +569,8 @@ function App() {
         members: {
           totalPeople,
           travelerNames,
+          travelers,
+          travelersFinalized,
           payers,
           responsibleParties,
         },
@@ -510,7 +578,7 @@ function App() {
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [sessionMode, activeTripId, totalPeople, travelerNames, payers, responsibleParties]);
+  }, [sessionMode, activeTripId, canEditActiveServerTrip, totalPeople, travelerNames, travelers, travelersFinalized, payers, responsibleParties]);
 
   useEffect(() => {
     if (totalPeople <= 0) {
@@ -625,6 +693,10 @@ function App() {
 
   // Add a new payer
   const addPayer = () => {
+    if (sessionMode === 'user' && !canEditActiveServerTrip) {
+      return;
+    }
+
     if (payers.length >= totalPeople) {
       return;
     }
@@ -642,6 +714,10 @@ function App() {
   };
 
   const removePayer = (index: number) => {
+    if (sessionMode === 'user' && !canEditActiveServerTrip) {
+      return;
+    }
+
     const removedName = payers[index];
     const updatedPayers = payers.filter((_, payerIndex) => payerIndex !== index);
     setPayers(updatedPayers);
@@ -656,6 +732,10 @@ function App() {
 
   // Update payer name
   const updatePayerName = (index: number, name: string) => {
+    if (sessionMode === 'user' && !canEditActiveServerTrip) {
+      return;
+    }
+
     const updatedPayers = [...payers];
     const oldName = updatedPayers[index];
     updatedPayers[index] = name;
@@ -671,7 +751,11 @@ function App() {
   };
 
   const updateTravelerName = (index: number, name: string) => {
-    const oldName = travelerNames[index]?.trim() || '';
+    if (sessionMode === 'user' && !canEditActiveServerTrip) {
+      return;
+    }
+
+    const oldName = travelers[index]?.name?.trim() || '';
     const nextName = name.trim();
 
     if (oldName && oldName !== nextName) {
@@ -695,14 +779,128 @@ function App() {
       });
     }
 
-    setTravelerNames((currentNames) => {
-      const updated = [...currentNames];
-      updated[index] = name;
-      return updated;
-    });
+    setTravelers((currentTravelers) =>
+      currentTravelers.map((traveler, travelerIndex) =>
+        travelerIndex === index ? { ...traveler, name } : traveler
+      )
+    );
+  };
+
+  const updateTravelerEmail = (index: number, email: string) => {
+    if (sessionMode === 'user' && !canEditActiveServerTrip) {
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    setTravelers((currentTravelers) =>
+      currentTravelers.map((traveler, travelerIndex) =>
+        travelerIndex === index ? { ...traveler, email: normalizedEmail } : traveler
+      )
+    );
+  };
+
+  const addTraveler = () => {
+    if (travelersFinalized) {
+      const shouldProceed = window.confirm('Traveller list is finalized. Adding a traveller may affect existing payer and split data. Continue?');
+      if (!shouldProceed) {
+        return;
+      }
+    }
+
+    setTravelers((current) => [...current, { name: '', email: '' }]);
+  };
+
+  const removeTraveler = (index: number) => {
+    if (travelers.length <= 1) {
+      setTripStatus('At least one traveller must remain in the trip.');
+      return;
+    }
+
+    if (travelersFinalized) {
+      const shouldProceed = window.confirm('Traveller list is finalized. Removing a traveller may affect existing payer and split data. Continue?');
+      if (!shouldProceed) {
+        return;
+      }
+    }
+
+    const removedName = travelers[index]?.name?.trim() || '';
+    setTravelers((current) => current.filter((_, travelerIndex) => travelerIndex !== index));
+
+    if (removedName) {
+      setPayers((current) => current.filter((payer) => payer !== removedName));
+      setResponsibleParties((current) => {
+        const next = { ...current };
+        delete next[removedName];
+        Object.keys(next).forEach((dependent) => {
+          if (next[dependent] === removedName) {
+            delete next[dependent];
+          }
+        });
+        return next;
+      });
+    }
+  };
+
+  const toggleTravelerFinalized = () => {
+    if (travelersFinalized) {
+      const shouldUnlock = window.confirm('Unlock traveller list for editing? You can add or remove travellers after unlocking.');
+      if (!shouldUnlock) {
+        return;
+      }
+      setTravelersFinalized(false);
+      setTripStatus('Traveller list unlocked for edits.');
+      return;
+    }
+
+    const hasMissingName = travelers.some((traveler) => !traveler.name.trim());
+    if (hasMissingName) {
+      setTripStatus('Please enter all traveller names before finalizing the list.');
+      return;
+    }
+
+    setTravelersFinalized(true);
+    setTripStatus('Traveller list finalized. Add/remove actions will now require confirmation.');
+  };
+
+  const handleApplySharing = async () => {
+    if (sessionMode !== 'user' || !activeTripId || !canEditActiveServerTrip) {
+      return;
+    }
+
+    setUpdatingShares(true);
+    const selectedEmails = shareCandidates
+      .filter((candidate) => candidate.hasAccount && candidate.selected)
+      .map((candidate) => candidate.email);
+
+    const result = await updateTripSharesApi(activeTripId, selectedEmails);
+    if (result.status === 'success') {
+      setTripStatus('Trip sharing updated successfully.');
+    } else {
+      setTripStatus(result.message || 'Could not update trip sharing.');
+    }
+
+    const refreshResult = await listTripShareCandidatesApi(activeTripId);
+    if (refreshResult.status === 'success') {
+      setShareCandidates(refreshResult.candidates);
+    }
+    setUpdatingShares(false);
+  };
+
+  const toggleShareCandidate = (email: string, checked: boolean) => {
+    setShareCandidates((current) =>
+      current.map((candidate) =>
+        candidate.email === email
+          ? { ...candidate, selected: checked }
+          : candidate
+      )
+    );
   };
 
   const updateResponsibleParty = (dependent: string, responsible: string) => {
+    if (sessionMode === 'user' && !canEditActiveServerTrip) {
+      return;
+    }
+
     setResponsibleParties((current) => {
       const next = { ...current };
       if (!responsible || responsible === dependent) {
@@ -871,8 +1069,10 @@ function App() {
       if (sessionMode === 'user') {
         resetTripState();
         await createAndActivateTrip({
-          totalPeople: 0,
-          travelerNames: [],
+          totalPeople: 1,
+          travelerNames: [''],
+          travelers: [{ name: currentUser?.name || '', email: currentUser?.email || '' }],
+          travelersFinalized: false,
           payers: [],
           responsibleParties: {},
         });
@@ -912,6 +1112,8 @@ function App() {
     localStorage.setItem(STORAGE_KEYS.guestActiveTripId, selectedTrip.id);
     setTotalPeople(selectedTrip.totalPeople);
     setTravelerNames(selectedTrip.travelerNames || []);
+    setTravelers(selectedTrip.travelers || (selectedTrip.travelerNames || []).map((name) => ({ name, email: '' })));
+    setTravelersFinalized(Boolean(selectedTrip.travelersFinalized));
     setPayers(selectedTrip.payers || []);
     setResponsibleParties(selectedTrip.responsibleParties || {});
     setExpenses(selectedTrip.expenses || []);
@@ -933,10 +1135,17 @@ function App() {
           return;
         }
 
+        if (!canEditActiveServerTrip) {
+          setTripStatus('You can view this shared trip, but only the owner can edit trip setup.');
+          return;
+        }
+
         const result = await updateTripApi(activeTripId, {
           members: {
             totalPeople,
             travelerNames,
+            travelers,
+            travelersFinalized,
             payers,
             responsibleParties,
           },
@@ -978,6 +1187,11 @@ function App() {
   };
 
   const beginRenameTrip = () => {
+    if (sessionMode === 'user' && !canEditActiveServerTrip) {
+      setTripStatus('Only the trip owner can rename this shared trip.');
+      return;
+    }
+
     const activeName = sessionMode === 'user'
       ? serverTrips.find((trip) => trip.id === activeTripId)?.name || ''
       : guestTrips.find((trip) => trip.id === activeGuestTripId)?.name || '';
@@ -1013,6 +1227,11 @@ function App() {
     setRenameTripLoading(true);
     try {
       if (sessionMode === 'user' && activeTripId) {
+        if (!canEditActiveServerTrip) {
+          setTripStatus('Only the trip owner can rename this shared trip.');
+          return;
+        }
+
         const result = await updateTripApi(activeTripId, { name: nextName });
         if (result.status !== 'success') {
           setTripStatus(result.message || 'Could not rename trip.');
@@ -1729,6 +1948,11 @@ function App() {
 
   // Add expense
   const addExpense = async () => {
+    if (isTripReadOnly) {
+      setTripStatus('This is a shared trip in view-only mode. Only the owner can add expenses.');
+      return;
+    }
+
     if (newExpense.description && newExpense.amount && newExpense.paidBy) {
       const expense: Expense = {
         id: Date.now().toString(),
@@ -1819,6 +2043,11 @@ function App() {
 
   // Delete expense
   const deleteExpense = (id: string) => {
+    if (isTripReadOnly) {
+      setTripStatus('This is a shared trip in view-only mode. Only the owner can remove expenses.');
+      return;
+    }
+
     const nextExpenses = expenses.filter(expense => expense.id !== id);
     setExpenses(nextExpenses);
     if (showResults) {
@@ -2193,7 +2422,14 @@ function App() {
           <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:justify-between">
             <div className="text-sm text-gray-700">
               {sessionMode === 'user' ? (
-                <span>Signed in as <strong>{currentUser?.name}</strong> ({currentUser?.email})</span>
+                <span>
+                  Signed in as <strong>{currentUser?.name}</strong> ({currentUser?.email})
+                  {activeTripAccessType === 'shared' && (
+                    <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                      Shared Trip (view-only)
+                    </span>
+                  )}
+                </span>
               ) : (
                 <span>Guest mode: history is stored only in this browser.</span>
               )}
@@ -2209,7 +2445,9 @@ function App() {
                     disabled={loadingTrips || serverTrips.length === 0}
                   >
                     {serverTrips.map((trip) => (
-                      <option key={trip.id} value={trip.id}>{trip.name}</option>
+                      <option key={trip.id} value={trip.id}>
+                        {trip.name}{trip.access_type === 'shared' ? ` (Shared by ${trip.owner_name || 'owner'})` : ''}
+                      </option>
                     ))}
                   </select>
                   <button
@@ -2227,7 +2465,7 @@ function App() {
                   </button>
                   <button
                     onClick={handleSaveTripDetails}
-                    disabled={savingTrip || !activeTripId}
+                    disabled={savingTrip || !activeTripId || !canEditActiveServerTrip}
                     className="px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {savingTrip ? 'Saving...' : 'Save Trip'}
@@ -2237,7 +2475,7 @@ function App() {
                   )}
                   <button
                     onClick={beginRenameTrip}
-                    disabled={!activeTripId || renameTripLoading}
+                    disabled={!activeTripId || renameTripLoading || !canEditActiveServerTrip}
                     className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     Rename Trip
@@ -2345,7 +2583,12 @@ function App() {
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-medium">{trip.name}</span>
+                      <span className="font-medium">
+                        {trip.name}
+                        {trip.access_type === 'shared' ? (
+                          <span className="ml-2 text-xs font-normal text-amber-700">Shared by {trip.owner_name || 'owner'}</span>
+                        ) : null}
+                      </span>
                       <span className="text-xs text-gray-500">{new Date(trip.created_at).toLocaleString()}</span>
                     </div>
                   </button>
@@ -2388,37 +2631,95 @@ function App() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Total Number of Travelers
+                Travellers
               </label>
-              <input
-                ref={totalTravelersInputRef}
-                type="number"
-                value={totalPeople}
-                onChange={(e) => setTotalPeople(parseInt(e.target.value) || 0)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="Enter number of people"
-                min="1"
-              />
-
-              {totalPeople > 0 && (
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Traveller Names
-                  </label>
-                  <div className="space-y-2">
-                    {Array.from({ length: totalPeople }).map((_, index) => (
-                      <input
-                        key={`traveller-${index}`}
-                        type="text"
-                        value={travelerNames[index] || ''}
-                        onChange={(e) => updateTravelerName(index, e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                        placeholder={`Traveller ${index + 1} name`}
-                      />
-                    ))}
+              <div className="space-y-2">
+                {travelers.map((traveler, index) => (
+                  <div key={`traveller-${index}`} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                    <input
+                      ref={index === 0 ? firstTravelerNameInputRef : undefined}
+                      type="text"
+                      value={traveler.name}
+                      onChange={(e) => updateTravelerName(index, e.target.value)}
+                      disabled={sessionMode === 'user' && !canEditActiveServerTrip}
+                      className="sm:col-span-5 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:bg-gray-100"
+                      placeholder={`Traveller ${index + 1} name`}
+                    />
+                    <input
+                      type="email"
+                      value={traveler.email}
+                      onChange={(e) => updateTravelerEmail(index, e.target.value)}
+                      disabled={sessionMode === 'user' && !canEditActiveServerTrip}
+                      className="sm:col-span-5 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:bg-gray-100"
+                      placeholder={`Traveller ${index + 1} email`}
+                    />
+                    <button
+                      onClick={() => removeTraveler(index)}
+                      disabled={(sessionMode === 'user' && !canEditActiveServerTrip) || travelers.length <= 1}
+                      className="sm:col-span-2 px-3 py-2 border border-red-200 rounded-lg text-red-600 hover:bg-red-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Remove
+                    </button>
                   </div>
+                ))}
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    onClick={addTraveler}
+                    disabled={sessionMode === 'user' && !canEditActiveServerTrip}
+                    className="px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Traveller
+                  </button>
+
+                  <button
+                    onClick={toggleTravelerFinalized}
+                    disabled={sessionMode === 'user' && !canEditActiveServerTrip}
+                    className="px-4 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {travelersFinalized ? 'Unlock Traveller List' : 'Finalize Traveller List'}
+                  </button>
                 </div>
-              )}
+
+                <p className="text-xs text-gray-600">
+                  First traveller is available by default. Finalizing warns before any add/remove changes.
+                </p>
+
+                {sessionMode === 'user' && activeTripAccessType === 'owner' && (
+                  <div className="mt-3 p-3 border border-indigo-200 rounded-lg bg-indigo-50">
+                    <p className="text-sm font-semibold text-indigo-800 mb-2">Share with Travellers Who Have Accounts</p>
+                    {shareCandidates.length === 0 ? (
+                      <p className="text-xs text-indigo-700">Add traveller emails, save trip, then refresh trip to fetch share options.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {shareCandidates.map((candidate) => (
+                          <label key={candidate.email} className="flex items-center justify-between gap-3 text-sm">
+                            <span className="text-gray-700">
+                              {candidate.name} ({candidate.email})
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={candidate.selected}
+                              disabled={!candidate.hasAccount}
+                              onChange={(e) => toggleShareCandidate(candidate.email, e.target.checked)}
+                              className="h-4 w-4"
+                            />
+                          </label>
+                        ))}
+                        <p className="text-xs text-gray-600">Travellers without an account are shown but cannot be selected yet.</p>
+                        <button
+                          onClick={handleApplySharing}
+                          disabled={updatingShares}
+                          className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-60"
+                        >
+                          {updatingShares ? 'Updating...' : 'Update Shared Access'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             
             <div>
@@ -2429,6 +2730,7 @@ function App() {
                 {hasFilledTravelerNames && (
                   <button
                     onClick={() => setUseTravelerChooserForPayers((enabled) => !enabled)}
+                    disabled={sessionMode === 'user' && !canEditActiveServerTrip}
                     className="w-full px-3 py-2 border border-blue-200 rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 transition-all text-sm font-medium"
                   >
                     {canUseTravelerChooser ? 'Use Manual Payer Entry' : 'Choose Payers from Travellers'}
@@ -2441,6 +2743,7 @@ function App() {
                       <select
                         value={payer}
                         onChange={(e) => updatePayerName(index, e.target.value)}
+                        disabled={sessionMode === 'user' && !canEditActiveServerTrip}
                         className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                       >
                         {filledTravelerNames
@@ -2454,12 +2757,14 @@ function App() {
                         type="text"
                         value={payer}
                         onChange={(e) => updatePayerName(index, e.target.value)}
+                        disabled={sessionMode === 'user' && !canEditActiveServerTrip}
                         className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                         placeholder={`Person ${index + 1} name`}
                       />
                     )}
                     <button
                       onClick={() => removePayer(index)}
+                      disabled={sessionMode === 'user' && !canEditActiveServerTrip}
                       className="px-3 py-2 border border-red-200 rounded-lg text-red-600 hover:bg-red-50 transition-all flex items-center justify-center"
                       aria-label={`Remove payer ${payer}`}
                       title="Remove payer"
@@ -2474,6 +2779,7 @@ function App() {
                       <select
                         value={nextPayerName}
                         onChange={(e) => setNextPayerName(e.target.value)}
+                        disabled={sessionMode === 'user' && !canEditActiveServerTrip}
                         className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                       >
                         {availablePayerChoices.map((name) => (
@@ -2483,7 +2789,7 @@ function App() {
                       <button
                         onClick={addPayer}
                         className="px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 transition-all flex items-center justify-center gap-2"
-                        disabled={availablePayerChoices.length === 0}
+                        disabled={availablePayerChoices.length === 0 || (sessionMode === 'user' && !canEditActiveServerTrip)}
                       >
                         <Plus className="w-4 h-4" />
                         Add Payer
@@ -2492,6 +2798,7 @@ function App() {
                   ) : (
                     <button
                       onClick={addPayer}
+                      disabled={sessionMode === 'user' && !canEditActiveServerTrip}
                       className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 transition-all flex items-center justify-center gap-2"
                     >
                       <Plus className="w-4 h-4" />
@@ -2515,6 +2822,7 @@ function App() {
                         <select
                           value={responsibleParties[dependent] || ''}
                           onChange={(e) => updateResponsibleParty(dependent, e.target.value)}
+                          disabled={sessionMode === 'user' && !canEditActiveServerTrip}
                           className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-sm"
                         >
                           <option value="">No link</option>
@@ -2990,6 +3298,7 @@ function App() {
             
             <button
               onClick={addExpense}
+              disabled={isTripReadOnly}
               className="w-full md:w-auto px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2 font-medium"
             >
               <Plus className="w-4 h-4" />
@@ -3052,6 +3361,7 @@ function App() {
                       </button>
                       <button
                         onClick={() => deleteExpense(expense.id)}
+                        disabled={isTripReadOnly}
                         className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-all"
                       >
                         <Trash2 className="w-4 h-4" />
