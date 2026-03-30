@@ -2585,38 +2585,7 @@ function App() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
-              {sessionMode === 'user' ? (
-                <>
-                  <select
-                    value={activeTripId || ''}
-                    onChange={(e) => handleSwitchServerTrip(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                    disabled={loadingTrips || serverTrips.length === 0}
-                  >
-                    {serverTrips.map((trip) => (
-                      <option key={trip.id} value={trip.id}>
-                        {trip.name}{trip.access_type === 'shared' ? ` (Shared by ${trip.owner_name || 'owner'})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              ) : (
-                <>
-                  <select
-                    value={activeGuestTripId || ''}
-                    onChange={(e) => handleSwitchGuestTrip(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                    disabled={guestTrips.length === 0}
-                  >
-                    {guestTrips.map((trip) => (
-                      <option key={trip.id} value={trip.id}>{trip.name}</option>
-                    ))}
-                  </select>
-                </>
-              )}
-
-              <div className="fixed top-4 right-4 z-50" ref={hamburgerMenuRef}>
+            <div className="fixed top-4 right-4 z-50" ref={hamburgerMenuRef}>
                 <button
                   onClick={() => setIsHamburgerOpen((open) => !open)}
                   aria-haspopup="menu"
@@ -2684,7 +2653,6 @@ function App() {
                 </div>
               </div>
             </div>
-          </div>
           {renamingTrip && (
             <div className="mt-3 p-3 rounded-lg border border-emerald-200 bg-emerald-50">
               <label className="block text-sm font-medium text-emerald-800 mb-2">New Trip Name</label>
