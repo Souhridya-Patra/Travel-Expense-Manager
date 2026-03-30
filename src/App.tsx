@@ -2600,30 +2600,6 @@ function App() {
                       </option>
                     ))}
                   </select>
-                  <button
-                    onClick={handleCreateNewTrip}
-                    disabled={creatingNewTrip}
-                    className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {creatingNewTrip ? 'Creating...' : 'New Trip'}
-                  </button>
-                  <button
-                    onClick={handleSaveTripDetails}
-                    disabled={savingTrip || !activeTripId || !canEditActiveServerTrip}
-                    className="px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {savingTrip ? 'Saving...' : 'Save Trip'}
-                  </button>
-                  {tripLastSavedAt && (
-                    <span className="text-xs text-gray-600">Last saved at {formatSavedTime(tripLastSavedAt)}</span>
-                  )}
-                  <button
-                    onClick={beginRenameTrip}
-                    disabled={!activeTripId || renameTripLoading || !canEditActiveServerTrip}
-                    className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    Rename Trip
-                  </button>
                 </>
               ) : (
                 <>
@@ -2637,47 +2613,22 @@ function App() {
                       <option key={trip.id} value={trip.id}>{trip.name}</option>
                     ))}
                   </select>
-                  <button
-                    onClick={handleCreateNewTrip}
-                    disabled={creatingNewTrip}
-                    className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {creatingNewTrip ? 'Creating...' : 'New Guest Trip'}
-                  </button>
-                  <button
-                    onClick={beginRenameTrip}
-                    disabled={!activeGuestTripId || renameTripLoading}
-                    className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    Rename Trip
-                  </button>
-                  <button
-                    onClick={handleSaveTripDetails}
-                    disabled={savingTrip || !activeGuestTripId}
-                    className="px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {savingTrip ? 'Saving...' : 'Save Trip'}
-                  </button>
-                  {tripLastSavedAt && (
-                    <span className="text-xs text-gray-600">Last saved at {formatSavedTime(tripLastSavedAt)}</span>
-                  )}
                 </>
               )}
 
-              <div className="relative z-50" ref={hamburgerMenuRef}>
+              <div className="fixed top-4 right-4 z-50" ref={hamburgerMenuRef}>
                 <button
                   onClick={() => setIsHamburgerOpen((open) => !open)}
                   aria-haspopup="menu"
                   aria-expanded={isHamburgerOpen}
-                  className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-100 transition-all flex items-center gap-2"
+                  className="flex items-center justify-center w-12 h-12 rounded-full bg-slate-900 text-white shadow-lg hover:bg-slate-800 transition-all hover:shadow-xl"
                 >
-                  <Menu className="w-4 h-4" />
-                  Menu
+                  <Menu className="w-5 h-5" />
                 </button>
 
                 <div
                   role="menu"
-                  className={`absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-2xl z-[120] overflow-hidden origin-top-right transition-all duration-200 ease-out ${
+                  className={`absolute right-0 mt-3 w-56 rounded-xl border border-slate-200 bg-white shadow-2xl z-[120] overflow-hidden origin-top-right transition-all duration-200 ease-out ${
                     isHamburgerOpen
                       ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
                       : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
@@ -2958,6 +2909,70 @@ function App() {
 
         {activeNavSection === 'workspace' && (
           <>
+        {/* Trip Management Section */}
+        <div className="ui-card">
+          <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <LayoutDashboard className="w-6 h-6 text-slate-700" />
+            Trip Management
+          </h2>
+          
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+            <div className="flex-1">
+              {sessionMode === 'user' ? (
+                <select
+                  value={activeTripId || ''}
+                  onChange={(e) => handleSwitchServerTrip(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  disabled={loadingTrips || serverTrips.length === 0}
+                >
+                  {serverTrips.map((trip) => (
+                    <option key={trip.id} value={trip.id}>
+                      {trip.name}{trip.access_type === 'shared' ? ` (Shared by ${trip.owner_name || 'owner'})` : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  value={activeGuestTripId || ''}
+                  onChange={(e) => handleSwitchGuestTrip(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  disabled={guestTrips.length === 0}
+                >
+                  {guestTrips.map((trip) => (
+                    <option key={trip.id} value={trip.id}>{trip.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <button
+              onClick={handleCreateNewTrip}
+              disabled={creatingNewTrip}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed font-medium whitespace-nowrap"
+            >
+              {creatingNewTrip ? 'Creating...' : 'New Trip'}
+            </button>
+            <button
+              onClick={handleSaveTripDetails}
+              disabled={savingTrip || (sessionMode === 'user' && (!activeTripId || !canEditActiveServerTrip)) || (sessionMode === 'guest' && !activeGuestTripId)}
+              className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed font-medium whitespace-nowrap"
+            >
+              {savingTrip ? 'Saving...' : 'Save Trip'}
+            </button>
+            <button
+              onClick={beginRenameTrip}
+              disabled={(sessionMode === 'user' && (!activeTripId || renameTripLoading || !canEditActiveServerTrip)) || (sessionMode === 'guest' && (!activeGuestTripId || renameTripLoading))}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed font-medium whitespace-nowrap"
+            >
+              Rename Trip
+            </button>
+          </div>
+
+          {tripLastSavedAt && (
+            <p className="text-xs text-gray-600 mt-3">Last saved at {formatSavedTime(tripLastSavedAt)}</p>
+          )}
+        </div>
+
         {/* Setup Section */}
         <div className="ui-card">
           <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
