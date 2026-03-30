@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine, LogIn, UserPlus, User, History, LogOut, Menu, Home, CircleUser, LayoutDashboard } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 import {
@@ -45,6 +45,7 @@ interface Expense {
   foodOrders?: { [person: string]: number };
   tax?: number;
   tip?: number;
+  createdAt?: string;
 }
 
 interface Settlement {
@@ -166,6 +167,9 @@ function App() {
   const [tripStatus, setTripStatus] = useState<string | null>(null);
   const [activeNavSection, setActiveNavSection] = useState<'home' | 'workspace' | 'pastTrips' | 'profile'>('home');
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
+  const [trackedRangeType, setTrackedRangeType] = useState<'monthly' | 'yearly' | 'custom'>('monthly');
+  const [customRangeStart, setCustomRangeStart] = useState('');
+  const [customRangeEnd, setCustomRangeEnd] = useState('');
   const [loadingTrips, setLoadingTrips] = useState(false);
   const [creatingNewTrip, setCreatingNewTrip] = useState(false);
   const [savingTrip, setSavingTrip] = useState(false);
@@ -181,6 +185,15 @@ function App() {
 
   useEffect(() => {
     firstTravelerNameInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const toDateInput = (value: Date) => value.toISOString().slice(0, 10);
+
+    setCustomRangeStart(toDateInput(startOfMonth));
+    setCustomRangeEnd(toDateInput(today));
   }, []);
 
   useEffect(() => {
@@ -328,6 +341,7 @@ function App() {
         paidBy: expense.paid_by,
         type: expense.type,
         foodOrders: expense.food_orders || undefined,
+        createdAt: expense.created_at,
       }));
       setExpenses(mappedExpenses);
       // Always reset settlement result view when loading/switching trips.
@@ -2015,7 +2029,8 @@ function App() {
         description: newExpense.description,
         amount: parseFloat(newExpense.amount),
         paidBy: newExpense.paidBy,
-        type: newExpense.type
+        type: newExpense.type,
+        createdAt: new Date().toISOString(),
       };
 
       if (newExpense.type === 'food') {
@@ -2237,6 +2252,59 @@ function App() {
   };
 
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const trackedTotalLabel = trackedRangeType === 'monthly'
+    ? 'This Month'
+    : trackedRangeType === 'yearly'
+      ? 'This Year'
+      : 'Custom Range';
+
+  const trackedTotal = useMemo(() => {
+    const parseExpenseDate = (expense: Expense): Date | null => {
+      if (expense.createdAt) {
+        const parsed = new Date(expense.createdAt);
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+
+      if (/^\d{12,14}$/.test(expense.id)) {
+        const parsed = new Date(Number(expense.id));
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+
+      return null;
+    };
+
+    const now = new Date();
+    const customStart = customRangeStart ? new Date(`${customRangeStart}T00:00:00`) : null;
+    const customEnd = customRangeEnd ? new Date(`${customRangeEnd}T23:59:59`) : null;
+
+    return expenses
+      .filter((expense) => {
+        const expenseDate = parseExpenseDate(expense);
+        if (!expenseDate) {
+          return trackedRangeType !== 'custom';
+        }
+
+        if (trackedRangeType === 'monthly') {
+          return expenseDate.getFullYear() === now.getFullYear() && expenseDate.getMonth() === now.getMonth();
+        }
+
+        if (trackedRangeType === 'yearly') {
+          return expenseDate.getFullYear() === now.getFullYear();
+        }
+
+        if (!customStart || !customEnd) {
+          return true;
+        }
+
+        return expenseDate >= customStart && expenseDate <= customEnd;
+      })
+      .reduce((sum, expense) => sum + expense.amount, 0);
+  }, [expenses, trackedRangeType, customRangeStart, customRangeEnd]);
+
   const regularExpenses = expenses.filter(e => e.type === 'regular');
   const foodExpenses = expenses.filter(e => e.type === 'food');
   const totalRegularExpenses = regularExpenses.reduce((sum, expense) => sum + expense.amount, 0);
@@ -2702,8 +2770,36 @@ function App() {
                   <p className="text-2xl font-bold text-slate-900">{expenses.length}</p>
                 </div>
                 <div className="rounded-xl bg-white/80 border border-amber-200 p-3">
-                  <p className="text-xs text-amber-700">Tracked Total</p>
-                  <p className="text-2xl font-bold text-slate-900">${totalExpenses.toFixed(2)}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-amber-700">Tracked Total</p>
+                    <select
+                      value={trackedRangeType}
+                      onChange={(e) => setTrackedRangeType(e.target.value as 'monthly' | 'yearly' | 'custom')}
+                      className="text-[11px] px-2 py-1 border border-amber-200 rounded-md bg-white text-slate-700"
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </div>
+                  <p className="text-2xl font-bold text-slate-900">${trackedTotal.toFixed(2)}</p>
+                  <p className="text-[11px] text-amber-700">{trackedTotalLabel}</p>
+                  {trackedRangeType === 'custom' && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        value={customRangeStart}
+                        onChange={(e) => setCustomRangeStart(e.target.value)}
+                        className="text-[11px] px-2 py-1 border border-amber-200 rounded-md bg-white text-slate-700"
+                      />
+                      <input
+                        type="date"
+                        value={customRangeEnd}
+                        onChange={(e) => setCustomRangeEnd(e.target.value)}
+                        className="text-[11px] px-2 py-1 border border-amber-200 rounded-md bg-white text-slate-700"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
