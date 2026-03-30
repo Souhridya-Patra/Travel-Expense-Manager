@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine, LogIn, UserPlus, User, History, LogOut } from 'lucide-react';
+import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine, LogIn, UserPlus, User, History, LogOut, Menu, Home, CircleUser } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 import {
   analyzeReceiptOcr,
@@ -164,7 +164,8 @@ function App() {
   const [activeTripId, setActiveTripId] = useState<string | null>(null);
   const [activeGuestTripId, setActiveGuestTripId] = useState<string | null>(null);
   const [tripStatus, setTripStatus] = useState<string | null>(null);
-  const [activeNavSection, setActiveNavSection] = useState<'workspace' | 'pastTrips'>('workspace');
+  const [activeNavSection, setActiveNavSection] = useState<'workspace' | 'pastTrips' | 'profile'>('workspace');
+  const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const [loadingTrips, setLoadingTrips] = useState(false);
   const [creatingNewTrip, setCreatingNewTrip] = useState(false);
   const [savingTrip, setSavingTrip] = useState(false);
@@ -176,10 +177,40 @@ function App() {
   const expenseDescriptionRef = useRef<HTMLInputElement | null>(null);
   const firstTravelerNameInputRef = useRef<HTMLInputElement | null>(null);
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const hamburgerMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     firstTravelerNameInputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (!isHamburgerOpen) {
+        return;
+      }
+
+      const target = event.target as Node | null;
+      if (target && hamburgerMenuRef.current && !hamburgerMenuRef.current.contains(target)) {
+        setIsHamburgerOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsHamburgerOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isHamburgerOpen]);
 
   const canEditActiveServerTrip = sessionMode !== 'user' || activeTripAccessType === 'owner';
   const isTripReadOnly = sessionMode === 'user' && !canEditActiveServerTrip;
@@ -1060,6 +1091,8 @@ function App() {
   };
 
   const handleLogout = () => {
+    setIsHamburgerOpen(false);
+    setActiveNavSection('workspace');
     setSessionMode(null);
     setCurrentUser(null);
     setActiveTripId(null);
@@ -2539,13 +2572,64 @@ function App() {
                 </>
               )}
 
-              <button
-                onClick={handleLogout}
-                className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-100 transition-all flex items-center gap-1"
-              >
-                <LogOut className="w-4 h-4" />
-                Exit
-              </button>
+              <div className="relative" ref={hamburgerMenuRef}>
+                <button
+                  onClick={() => setIsHamburgerOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={isHamburgerOpen}
+                  className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-100 transition-all flex items-center gap-2"
+                >
+                  <Menu className="w-4 h-4" />
+                  Menu
+                </button>
+
+                <div
+                  role="menu"
+                  className={`absolute right-0 mt-2 w-52 rounded-xl border border-slate-200 bg-white shadow-lg z-20 overflow-hidden origin-top-right transition-all duration-200 ease-out ${
+                    isHamburgerOpen
+                      ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
+                      : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
+                  }`}
+                >
+                  <button
+                    onClick={() => {
+                      setActiveNavSection('profile');
+                      setIsHamburgerOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <CircleUser className="w-4 h-4" />
+                    Profile
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveNavSection('workspace');
+                      setIsHamburgerOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <Home className="w-4 h-4" />
+                    Home
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveNavSection('pastTrips');
+                      setIsHamburgerOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <History className="w-4 h-4" />
+                    Past Trips
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-slate-100"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    {sessionMode === 'guest' ? 'Exit Guest Mode' : 'Log Out'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
           {renamingTrip && (
@@ -2581,29 +2665,35 @@ function App() {
         </div>
 
         <div className="ui-card-tight">
-          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
-            <button
-              onClick={() => setActiveNavSection('workspace')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                activeNavSection === 'workspace'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Trip Workspace
-            </button>
-            <button
-              onClick={() => setActiveNavSection('pastTrips')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                activeNavSection === 'pastTrips'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Past Trips
-            </button>
-          </div>
+          <p className="text-sm text-slate-600">
+            {activeNavSection === 'workspace' && 'Home: manage trip setup, expenses, analytics, and settlements.'}
+            {activeNavSection === 'pastTrips' && 'Past Trips: browse and reopen previous trips.'}
+            {activeNavSection === 'profile' && 'Profile: view your account and current session details.'}
+          </p>
         </div>
+
+        {activeNavSection === 'profile' && (
+          <div className="ui-card">
+            <h2 className="text-xl font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <CircleUser className="w-5 h-5 text-slate-700" />
+              Profile
+            </h2>
+
+            {sessionMode === 'user' ? (
+              <div className="space-y-2 text-sm text-slate-700">
+                <p><span className="font-medium">Name:</span> {currentUser?.name}</p>
+                <p><span className="font-medium">Email:</span> {currentUser?.email}</p>
+                <p><span className="font-medium">Mode:</span> Signed-in</p>
+                <p><span className="font-medium">Active Trip Access:</span> {activeTripAccessType === 'shared' ? 'Shared (view-only)' : 'Owner'}</p>
+              </div>
+            ) : (
+              <div className="space-y-2 text-sm text-slate-700">
+                <p><span className="font-medium">Mode:</span> Guest</p>
+                <p>Trip history is stored locally in this browser only.</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {activeNavSection === 'pastTrips' && (
           <div className="ui-card">
