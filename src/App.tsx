@@ -2456,7 +2456,7 @@ function App() {
     <div className="ui-shell">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="ui-card-tight">
+        <div className="ui-card-tight relative z-40 overflow-visible">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 sm:gap-4">
               <img
@@ -2476,7 +2476,7 @@ function App() {
           </div>
         </div>
 
-        <div className="ui-card-tight">
+        <div className="ui-card-tight relative z-30 overflow-visible">
           <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:justify-between">
             <div className="text-sm text-gray-700">
               {sessionMode === 'user' ? (
@@ -2572,7 +2572,7 @@ function App() {
                 </>
               )}
 
-              <div className="relative" ref={hamburgerMenuRef}>
+              <div className="relative z-50" ref={hamburgerMenuRef}>
                 <button
                   onClick={() => setIsHamburgerOpen((open) => !open)}
                   aria-haspopup="menu"
@@ -2585,7 +2585,7 @@ function App() {
 
                 <div
                   role="menu"
-                  className={`absolute right-0 mt-2 w-52 rounded-xl border border-slate-200 bg-white shadow-lg z-20 overflow-hidden origin-top-right transition-all duration-200 ease-out ${
+                  className={`absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-2xl z-[120] overflow-hidden origin-top-right transition-all duration-200 ease-out ${
                     isHamburgerOpen
                       ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
                       : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
