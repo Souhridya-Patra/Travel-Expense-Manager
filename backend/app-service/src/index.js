@@ -512,11 +512,15 @@ app.post('/api/trips/:tripId/expenses', authMiddleware, async (req, res) => {
     return res.status(403).json({ message: 'Shared users can view this trip but cannot add expenses' });
   }
 
+  // Get user email for unique tracking
+  const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.sub]);
+  const userEmail = userResult.rows[0]?.email || '';
+
   const inserted = await pool.query(
-    `INSERT INTO expenses(trip_id, description, amount, paid_by, type, food_orders)
-     VALUES($1, $2, $3, $4, $5, $6)
-     RETURNING id, description, amount, paid_by, type, food_orders, created_at`,
-    [tripId, description, amount, paidBy, type, foodOrders ? JSON.stringify(foodOrders) : null]
+    `INSERT INTO expenses(trip_id, description, amount, paid_by, paid_by_email, type, food_orders)
+     VALUES($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, description, amount, paid_by, paid_by_email, type, food_orders, created_at`,
+    [tripId, description, amount, paidBy, userEmail, type, foodOrders ? JSON.stringify(foodOrders) : null]
   );
 
   res.status(201).json({ expense: inserted.rows[0] });
@@ -652,13 +656,13 @@ app.get('/api/user/spending-stats', authMiddleware, async (req, res) => {
   const userId = req.user.sub;
 
   try {
-    // First, get the user's name
-    const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+    // Get the user's email for unique tracking
+    const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
     if (userResult.rowCount === 0) {
       return res.status(404).json({ status: 'error', message: 'User not found' });
     }
 
-    const userName = userResult.rows[0].name;
+    const userEmail = userResult.rows[0].email;
 
     let query = `
       SELECT 
@@ -669,9 +673,9 @@ app.get('/api/user/spending-stats', authMiddleware, async (req, res) => {
       FROM expenses e
       JOIN trips t ON e.trip_id = t.id
       LEFT JOIN trip_shares ts ON ts.trip_id = t.id
-      WHERE (t.user_id = $1 OR ts.user_id = $1) AND e.paid_by = $2 AND 1=1
+      WHERE (t.user_id = $1 OR ts.user_id = $1) AND e.paid_by_email = $2 AND 1=1
     `;
-    const params = [userId, userName];
+    const params = [userId, userEmail];
 
     // Add date filtering based on range type
     if (rangeType === 'monthly') {
@@ -713,13 +717,13 @@ app.get('/api/user/spending-breakdown', authMiddleware, async (req, res) => {
   const userId = req.user.sub;
 
   try {
-    // First, get the user's name
-    const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+    // Get the user's email for unique tracking
+    const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
     if (userResult.rowCount === 0) {
       return res.status(404).json({ status: 'error', message: 'User not found' });
     }
 
-    const userName = userResult.rows[0].name;
+    const userEmail = userResult.rows[0].email;
 
     const result = await pool.query(`
       SELECT 
@@ -729,11 +733,11 @@ app.get('/api/user/spending-breakdown', authMiddleware, async (req, res) => {
       FROM expenses e
       JOIN trips t ON e.trip_id = t.id
       LEFT JOIN trip_shares ts ON ts.trip_id = t.id
-      WHERE (t.user_id = $1 OR ts.user_id = $1) AND e.paid_by = $2
+      WHERE (t.user_id = $1 OR ts.user_id = $1) AND e.paid_by_email = $2
       GROUP BY DATE_TRUNC('month', e.created_at)
       ORDER BY month DESC
       LIMIT 12
-    `, [userId, userName]);
+    `, [userId, userEmail]);
 
     return res.json({
       status: 'success',
