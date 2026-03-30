@@ -34,6 +34,7 @@ import {
   type TripShareCandidate,
   type TripSummary,
 } from './services/tripService';
+import appLogo from '../assets/S_Logo.png';
 
 interface Expense {
   id: string;
@@ -2422,7 +2423,7 @@ function App() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 sm:gap-4">
               <img
-                src="../../assets/S_Logo.png"
+                src={appLogo}
                 alt="App Logo"
                 width={64}
                 className="shrink-0"
