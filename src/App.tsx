@@ -181,6 +181,7 @@ function App() {
   const [renamingTrip, setRenamingTrip] = useState(false);
   const [renameTripLoading, setRenameTripLoading] = useState(false);
   const [renameTripDraft, setRenameTripDraft] = useState('');
+  const [isDebuggingMode, setIsDebuggingMode] = useState(false);
   const receiptImageRef = useRef<HTMLImageElement | null>(null);
   const expenseDescriptionRef = useRef<HTMLInputElement | null>(null);
   const firstTravelerNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -2941,6 +2942,31 @@ function App() {
           )}
         </div>
 
+        {/* Debugging Mode Section */}
+        <div className="ui-card bg-slate-50 border border-slate-200">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
+              <ScanLine className="w-5 h-5 text-slate-600" />
+              Advanced Debug Options
+            </h2>
+            <button
+              onClick={() => setIsDebuggingMode(!isDebuggingMode)}
+              className={`px-3 py-1 text-sm font-medium rounded-lg transition-all ${
+                isDebuggingMode
+                  ? 'bg-orange-600 text-white hover:bg-orange-700'
+                  : 'bg-slate-300 text-slate-700 hover:bg-slate-400'
+              }`}
+            >
+              {isDebuggingMode ? 'Disable' : 'Enable'}
+            </button>
+          </div>
+          {isDebuggingMode && (
+            <p className="text-sm text-slate-600 mt-2">
+              Debug mode is active. Advanced extraction and training options are visible below.
+            </p>
+          )}
+        </div>
+
         {/* Setup Section */}
         <div className="ui-card">
           <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -3240,22 +3266,26 @@ function App() {
                 >
                   {ocrStatus === 'running' ? 'Scanning...' : 'Run ANI OCR'}
                 </button>
-                <button
-                  onClick={extractTotalFromSelectedArea}
-                  disabled={!receiptImage || !selectedAreaRect}
-                  type="button"
-                  className="mt-3 ml-0 md:ml-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Extract Total from Selected Area
-                </button>
-                <button
-                  onClick={extractDescriptionFromSelectedArea}
-                  disabled={!receiptImage || !selectedAreaRect}
-                  type="button"
-                  className="mt-3 ml-0 md:ml-3 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Extract Description from Selected Area
-                </button>
+                {isDebuggingMode && (
+                  <>
+                    <button
+                      onClick={extractTotalFromSelectedArea}
+                      disabled={!receiptImage || !selectedAreaRect}
+                      type="button"
+                      className="mt-3 ml-0 md:ml-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Extract Total from Selected Area
+                    </button>
+                    <button
+                      onClick={extractDescriptionFromSelectedArea}
+                      disabled={!receiptImage || !selectedAreaRect}
+                      type="button"
+                      className="mt-3 ml-0 md:ml-3 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Extract Description from Selected Area
+                    </button>
+                  </>
+                )}
                 {ocrStatus === 'running' && (
                   <p className="mt-2 text-sm text-gray-600">Progress: {ocrProgress}%</p>
                 )}
@@ -3403,14 +3433,16 @@ function App() {
                 >
                   Use Amount in Expense
                 </button>
-                <button
-                  onClick={saveReceiptFeedback}
-                  disabled={submittingFeedback}
-                  type="button"
-                  className="mt-3 ml-0 md:ml-3 px-5 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all disabled:opacity-60"
-                >
-                  {submittingFeedback ? 'Saving...' : 'Save Corrections for Training'}
-                </button>
+                {isDebuggingMode && (
+                  <button
+                    onClick={saveReceiptFeedback}
+                    disabled={submittingFeedback}
+                    type="button"
+                    className="mt-3 ml-0 md:ml-3 px-5 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all disabled:opacity-60"
+                  >
+                    {submittingFeedback ? 'Saving...' : 'Save Corrections for Training'}
+                  </button>
+                )}
                 {feedbackStatus && (
                   <p className={`mt-3 text-sm ${feedbackStatus.includes('saved') ? 'text-green-600' : 'text-gray-700'}`}>
                     {feedbackStatus}
@@ -3721,8 +3753,8 @@ function App() {
             </div>
           </div>
         )}
-
-        {/* Phase 3.3 Analytics Panel */}
+{/* 
+        Phase 3.3 Analytics Panel
         {(expenses.length > 0 || receiptHistory.length > 0) && (
           <div className="ui-card">
             <h2 className="text-2xl font-semibold text-gray-800 mb-4">Phase 3.3 Analytics</h2>
@@ -3800,7 +3832,7 @@ function App() {
               )}
             </div>
           </div>
-        )}
+        )} */}
 
         {/* Results Section */}
         {showResults && (
