@@ -896,6 +896,23 @@ function App() {
     );
   };
 
+  const refreshShareCandidates = async () => {
+    if (sessionMode !== 'user' || !activeTripId || !canEditActiveServerTrip) {
+      return;
+    }
+
+    const result = await listTripShareCandidatesApi(activeTripId);
+    if (result.status === 'success') {
+      setShareCandidates(result.candidates);
+      if (result.candidates.length === 0) {
+        setTripStatus('No shareable travellers yet. Add traveller emails and save trip details first.');
+      }
+      return;
+    }
+
+    setTripStatus(result.message || 'Could not load share options.');
+  };
+
   const updateResponsibleParty = (dependent: string, responsible: string) => {
     if (sessionMode === 'user' && !canEditActiveServerTrip) {
       return;
@@ -1153,6 +1170,7 @@ function App() {
 
         if (result.status === 'success') {
           setTripStatus('Trip details saved.');
+          await refreshShareCandidates();
         } else {
           setTripStatus(result.message || 'Could not save trip details.');
         }
@@ -2688,7 +2706,15 @@ function App() {
 
                 {sessionMode === 'user' && activeTripAccessType === 'owner' && (
                   <div className="mt-3 p-3 border border-indigo-200 rounded-lg bg-indigo-50">
-                    <p className="text-sm font-semibold text-indigo-800 mb-2">Share with Travellers Who Have Accounts</p>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-indigo-800">Share with Travellers Who Have Accounts</p>
+                      <button
+                        onClick={refreshShareCandidates}
+                        className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all"
+                      >
+                        Refresh Share Options
+                      </button>
+                    </div>
                     {shareCandidates.length === 0 ? (
                       <p className="text-xs text-indigo-700">Add traveller emails, save trip, then refresh trip to fetch share options.</p>
                     ) : (
