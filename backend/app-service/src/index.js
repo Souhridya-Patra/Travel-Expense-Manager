@@ -646,12 +646,20 @@ app.post('/api/ml-feedback', authMiddleware, async (req, res) => {
   return res.status(201).json({ feedback: result.rows[0] });
 });
 
-// Get user's spending statistics for a given time range
+// Get user's spending statistics for a given time range (only expenses paid by this user)
 app.get('/api/user/spending-stats', authMiddleware, async (req, res) => {
   const { rangeType = 'monthly', startDate, endDate } = req.query;
   const userId = req.user.sub;
 
   try {
+    // First, get the user's name
+    const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ status: 'error', message: 'User not found' });
+    }
+
+    const userName = userResult.rows[0].name;
+
     let query = `
       SELECT 
         SUM(e.amount) as total_amount,
@@ -661,9 +669,9 @@ app.get('/api/user/spending-stats', authMiddleware, async (req, res) => {
       FROM expenses e
       JOIN trips t ON e.trip_id = t.id
       LEFT JOIN trip_shares ts ON ts.trip_id = t.id
-      WHERE (t.user_id = $1 OR ts.user_id = $1) AND 1=1
+      WHERE (t.user_id = $1 OR ts.user_id = $1) AND e.paid_by = $2 AND 1=1
     `;
-    const params = [userId];
+    const params = [userId, userName];
 
     // Add date filtering based on range type
     if (rangeType === 'monthly') {
@@ -674,7 +682,7 @@ app.get('/api/user/spending-stats', authMiddleware, async (req, res) => {
       query += ` AND DATE_TRUNC('year', e.created_at) = DATE_TRUNC('year', NOW())`;
     } else if (rangeType === 'custom' && startDate && endDate) {
       // Custom date range
-      query += ` AND e.created_at >= $2::timestamp AND e.created_at <= $3::timestamp`;
+      query += ` AND e.created_at >= $3::timestamp AND e.created_at <= $4::timestamp`;
       params.push(startDate);
       params.push(endDate);
     }
@@ -700,11 +708,19 @@ app.get('/api/user/spending-stats', authMiddleware, async (req, res) => {
   }
 });
 
-// Get user's spending breakdown by month (for charts/analytics)
+// Get user's spending breakdown by month (for charts/analytics) - only expenses paid by this user
 app.get('/api/user/spending-breakdown', authMiddleware, async (req, res) => {
   const userId = req.user.sub;
 
   try {
+    // First, get the user's name
+    const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ status: 'error', message: 'User not found' });
+    }
+
+    const userName = userResult.rows[0].name;
+
     const result = await pool.query(`
       SELECT 
         DATE_TRUNC('month', e.created_at)::date as month,
@@ -713,11 +729,11 @@ app.get('/api/user/spending-breakdown', authMiddleware, async (req, res) => {
       FROM expenses e
       JOIN trips t ON e.trip_id = t.id
       LEFT JOIN trip_shares ts ON ts.trip_id = t.id
-      WHERE (t.user_id = $1 OR ts.user_id = $1)
+      WHERE (t.user_id = $1 OR ts.user_id = $1) AND e.paid_by = $2
       GROUP BY DATE_TRUNC('month', e.created_at)
       ORDER BY month DESC
       LIMIT 12
-    `, [userId]);
+    `, [userId, userName]);
 
     return res.json({
       status: 'success',
