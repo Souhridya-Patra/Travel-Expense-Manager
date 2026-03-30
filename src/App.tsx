@@ -164,6 +164,7 @@ function App() {
   const [activeTripId, setActiveTripId] = useState<string | null>(null);
   const [activeGuestTripId, setActiveGuestTripId] = useState<string | null>(null);
   const [tripStatus, setTripStatus] = useState<string | null>(null);
+  const [activeNavSection, setActiveNavSection] = useState<'workspace' | 'pastTrips'>('workspace');
   const [loadingTrips, setLoadingTrips] = useState(false);
   const [creatingNewTrip, setCreatingNewTrip] = useState(false);
   const [savingTrip, setSavingTrip] = useState(false);
@@ -1084,6 +1085,7 @@ function App() {
 
     setCreatingNewTrip(true);
     try {
+      setActiveNavSection('workspace');
       if (sessionMode === 'user') {
         resetTripState();
         await createAndActivateTrip({
@@ -1117,6 +1119,7 @@ function App() {
 
     resetTripState();
     await loadTripDetails(selectedTrip);
+    setActiveNavSection('workspace');
     setTripStatus(`Loaded ${selectedTrip.name}`);
   };
 
@@ -1137,6 +1140,7 @@ function App() {
     setExpenses(selectedTrip.expenses || []);
     setSettlements(selectedTrip.settlements || []);
     setReceiptHistory(selectedTrip.receiptHistory || []);
+    setActiveNavSection('workspace');
     setTripStatus(`Loaded ${selectedTrip.name}`);
   };
 
@@ -2479,12 +2483,6 @@ function App() {
                     {creatingNewTrip ? 'Creating...' : 'New Trip'}
                   </button>
                   <button
-                    onClick={loadServerTrips}
-                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all"
-                  >
-                    Refresh Trips
-                  </button>
-                  <button
                     onClick={handleSaveTripDetails}
                     disabled={savingTrip || !activeTripId || !canEditActiveServerTrip}
                     className="px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
@@ -2582,66 +2580,95 @@ function App() {
           {tripStatus && <p className="mt-2 text-sm text-gray-700">{tripStatus}</p>}
         </div>
 
-        <div className="ui-card">
-          <h2 className="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
-            <History className="w-5 h-5 text-indigo-600" />
-            Past Trips
-          </h2>
-
-          {sessionMode === 'user' ? (
-            serverTrips.length === 0 ? (
-              <p className="text-sm text-gray-600">No saved trips yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {serverTrips.map((trip) => (
-                  <button
-                    key={trip.id}
-                    onClick={() => handleSwitchServerTrip(trip.id)}
-                    className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
-                      activeTripId === trip.id
-                        ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
-                        : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">
-                        {trip.name}
-                        {trip.access_type === 'shared' ? (
-                          <span className="ml-2 text-xs font-normal text-amber-700">Shared by {trip.owner_name || 'owner'}</span>
-                        ) : null}
-                      </span>
-                      <span className="text-xs text-gray-500">{new Date(trip.created_at).toLocaleString()}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )
-          ) : (
-            guestTrips.length === 0 ? (
-              <p className="text-sm text-gray-600">No guest trips yet. Start one and it will be kept in browser storage only.</p>
-            ) : (
-              <div className="space-y-2">
-                {guestTrips.map((trip) => (
-                  <button
-                    key={trip.id}
-                    onClick={() => handleSwitchGuestTrip(trip.id)}
-                    className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
-                      activeGuestTripId === trip.id
-                        ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
-                        : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{trip.name}</span>
-                      <span className="text-xs text-gray-500">{new Date(trip.updatedAt).toLocaleString()}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )
-          )}
+        <div className="ui-card-tight">
+          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
+            <button
+              onClick={() => setActiveNavSection('workspace')}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                activeNavSection === 'workspace'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              Trip Workspace
+            </button>
+            <button
+              onClick={() => setActiveNavSection('pastTrips')}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                activeNavSection === 'pastTrips'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              Past Trips
+            </button>
+          </div>
         </div>
 
+        {activeNavSection === 'pastTrips' && (
+          <div className="ui-card">
+            <h2 className="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <History className="w-5 h-5 text-indigo-600" />
+              Past Trips
+            </h2>
+
+            {sessionMode === 'user' ? (
+              serverTrips.length === 0 ? (
+                <p className="text-sm text-gray-600">No saved trips yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {serverTrips.map((trip) => (
+                    <button
+                      key={trip.id}
+                      onClick={() => handleSwitchServerTrip(trip.id)}
+                      className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+                        activeTripId === trip.id
+                          ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">
+                          {trip.name}
+                          {trip.access_type === 'shared' ? (
+                            <span className="ml-2 text-xs font-normal text-amber-700">Shared by {trip.owner_name || 'owner'}</span>
+                          ) : null}
+                        </span>
+                        <span className="text-xs text-gray-500">{new Date(trip.created_at).toLocaleString()}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : (
+              guestTrips.length === 0 ? (
+                <p className="text-sm text-gray-600">No guest trips yet. Start one and it will be kept in browser storage only.</p>
+              ) : (
+                <div className="space-y-2">
+                  {guestTrips.map((trip) => (
+                    <button
+                      key={trip.id}
+                      onClick={() => handleSwitchGuestTrip(trip.id)}
+                      className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+                        activeGuestTripId === trip.id
+                          ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{trip.name}</span>
+                        <span className="text-xs text-gray-500">{new Date(trip.updatedAt).toLocaleString()}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+        )}
+
+        {activeNavSection === 'workspace' && (
+          <>
         {/* Setup Section */}
         <div className="ui-card">
           <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -3537,6 +3564,8 @@ function App() {
               </div>
             )}
           </div>
+        )}
+          </>
         )}
       </div>
     </div>
