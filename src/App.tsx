@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine, LogIn, UserPlus, User, History, LogOut, Menu, Home, CircleUser } from 'lucide-react';
+import { Plus, Users, Receipt, Calculator, Trash2, Edit3, UtensilsCrossed, DollarSign, ScanLine, LogIn, UserPlus, User, History, LogOut, Menu, Home, CircleUser, LayoutDashboard } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 import {
   analyzeReceiptOcr,
@@ -164,7 +164,7 @@ function App() {
   const [activeTripId, setActiveTripId] = useState<string | null>(null);
   const [activeGuestTripId, setActiveGuestTripId] = useState<string | null>(null);
   const [tripStatus, setTripStatus] = useState<string | null>(null);
-  const [activeNavSection, setActiveNavSection] = useState<'workspace' | 'pastTrips' | 'profile'>('workspace');
+  const [activeNavSection, setActiveNavSection] = useState<'home' | 'workspace' | 'pastTrips' | 'profile'>('home');
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const [loadingTrips, setLoadingTrips] = useState(false);
   const [creatingNewTrip, setCreatingNewTrip] = useState(false);
@@ -1092,7 +1092,7 @@ function App() {
 
   const handleLogout = () => {
     setIsHamburgerOpen(false);
-    setActiveNavSection('workspace');
+    setActiveNavSection('home');
     setSessionMode(null);
     setCurrentUser(null);
     setActiveTripId(null);
@@ -2603,13 +2603,23 @@ function App() {
                   </button>
                   <button
                     onClick={() => {
-                      setActiveNavSection('workspace');
+                      setActiveNavSection('home');
                       setIsHamburgerOpen(false);
                     }}
                     className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                   >
                     <Home className="w-4 h-4" />
                     Home
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveNavSection('workspace');
+                      setIsHamburgerOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    Workspace
                   </button>
                   <button
                     onClick={() => {
@@ -2666,11 +2676,61 @@ function App() {
 
         <div className="ui-card-tight">
           <p className="text-sm text-slate-600">
-            {activeNavSection === 'workspace' && 'Home: manage trip setup, expenses, analytics, and settlements.'}
+            {activeNavSection === 'home' && 'Welcome Home: start fresh, continue where you left off, or jump into past trips.'}
+            {activeNavSection === 'workspace' && 'Workspace: manage trip setup, expenses, analytics, and settlements.'}
             {activeNavSection === 'pastTrips' && 'Past Trips: browse and reopen previous trips.'}
             {activeNavSection === 'profile' && 'Profile: view your account and current session details.'}
           </p>
         </div>
+
+        {activeNavSection === 'home' && (
+          <div className="ui-card">
+            <div className="rounded-2xl border border-cyan-200 bg-gradient-to-r from-cyan-50 via-emerald-50 to-amber-50 p-5 md:p-6">
+              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Travel Expense Manager</p>
+              <h2 className="font-display mt-2 text-2xl md:text-3xl font-bold text-slate-800">Welcome back{currentUser?.name ? `, ${currentUser.name}` : ''}</h2>
+              <p className="mt-2 text-sm md:text-base text-slate-600 max-w-2xl">
+                Start clean, continue your active trip, or revisit previous journeys whenever you want.
+              </p>
+
+              <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="rounded-xl bg-white/80 border border-cyan-200 p-3">
+                  <p className="text-xs text-cyan-700">Saved Trips</p>
+                  <p className="text-2xl font-bold text-slate-900">{sessionMode === 'user' ? serverTrips.length : guestTrips.length}</p>
+                </div>
+                <div className="rounded-xl bg-white/80 border border-emerald-200 p-3">
+                  <p className="text-xs text-emerald-700">Active Trip Expenses</p>
+                  <p className="text-2xl font-bold text-slate-900">{expenses.length}</p>
+                </div>
+                <div className="rounded-xl bg-white/80 border border-amber-200 p-3">
+                  <p className="text-xs text-amber-700">Tracked Total</p>
+                  <p className="text-2xl font-bold text-slate-900">${totalExpenses.toFixed(2)}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button
+                  onClick={handleCreateNewTrip}
+                  disabled={creatingNewTrip}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-slate-800 transition-all disabled:opacity-60"
+                >
+                  {creatingNewTrip ? 'Creating...' : 'Start New Trip'}
+                </button>
+                <button
+                  onClick={() => setActiveNavSection('workspace')}
+                  className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-sm hover:bg-cyan-700 transition-all"
+                >
+                  Continue Active Trip
+                </button>
+                <button
+                  onClick={() => setActiveNavSection('pastTrips')}
+                  className="px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded-lg text-sm hover:bg-slate-50 transition-all"
+                >
+                  Browse Past Trips
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {activeNavSection === 'profile' && (
           <div className="ui-card">
