@@ -20,6 +20,7 @@ import {
   loginWithGoogleIdToken,
   resendOtp,
   registerWithEmail,
+  updateUserProfile,
   verifyOtp,
   type AuthUser,
 } from './services/authService';
@@ -32,6 +33,7 @@ import {
   updateTripApi,
   updateTripSharesApi,
   getUserSpendingStatsApi,
+  sendSettlementRemindersApi,
   type TripShareCandidate,
   type TripSummary,
   type SpendingStats,
@@ -155,7 +157,7 @@ function App() {
   const [authView, setAuthView] = useState<AuthView>('choice');
   const [authStatus, setAuthStatus] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
-  const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
+  const [authForm, setAuthForm] = useState({ name: '', email: '', password: '', upiId: '' });
   const [otpCode, setOtpCode] = useState('');
   const [pendingOtpEmail, setPendingOtpEmail] = useState('');
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -182,6 +184,10 @@ function App() {
   const [renameTripLoading, setRenameTripLoading] = useState(false);
   const [renameTripDraft, setRenameTripDraft] = useState('');
   const [isDebuggingMode, setIsDebuggingMode] = useState(false);
+  const [profileUpiIdDraft, setProfileUpiIdDraft] = useState('');
+  const [savingProfileUpiId, setSavingProfileUpiId] = useState(false);
+  const [profileStatus, setProfileStatus] = useState<string | null>(null);
+  const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'EUR' | 'GBP' | 'INR' | 'AUD' | 'CAD' | 'JPY' | 'CNY'>('USD');
   const receiptImageRef = useRef<HTMLImageElement | null>(null);
   const expenseDescriptionRef = useRef<HTMLInputElement | null>(null);
   const firstTravelerNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -229,6 +235,10 @@ function App() {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isHamburgerOpen]);
+
+  useEffect(() => {
+    setProfileUpiIdDraft(currentUser?.upiId || '');
+  }, [currentUser]);
 
   const canEditActiveServerTrip = sessionMode !== 'user' || activeTripAccessType === 'owner';
   const isTripReadOnly = sessionMode === 'user' && !canEditActiveServerTrip;
@@ -1043,6 +1053,7 @@ function App() {
         name: authForm.name.trim(),
         email: authForm.email.trim(),
         password: authForm.password,
+        upiId: authForm.upiId.trim(),
       });
       setAuthLoading(false);
       if (result.status === 'pending_otp' && result.email) {
@@ -1102,6 +1113,32 @@ function App() {
     setAuthStatus(result.message || 'Could not resend verification code.');
   };
 
+  const handleSaveProfileUpiId = async () => {
+    if (!currentUser) {
+      return;
+    }
+
+    const upiId = profileUpiIdDraft.trim();
+    if (!upiId) {
+      setProfileStatus('UPI ID cannot be empty.');
+      return;
+    }
+
+    setSavingProfileUpiId(true);
+    setProfileStatus(null);
+    const result = await updateUserProfile({ upiId });
+    setSavingProfileUpiId(false);
+
+    if (result.status === 'success' && result.user) {
+      setCurrentUser(result.user);
+      localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result.user));
+      setProfileStatus('UPI ID updated successfully.');
+      return;
+    }
+
+    setProfileStatus(result.message || 'Could not update UPI ID.');
+  };
+
   const enterGuestMode = () => {
     localStorage.setItem(STORAGE_KEYS.mode, 'guest');
     setSessionMode('guest');
@@ -1143,7 +1180,9 @@ function App() {
     setActiveGuestTripId(null);
     setServerTrips([]);
     setAuthView('choice');
-    setAuthForm({ name: '', email: '', password: '' });
+    setAuthForm({ name: '', email: '', password: '', upiId: '' });
+    setProfileUpiIdDraft('');
+    setProfileStatus(null);
     setOtpCode('');
     setPendingOtpEmail('');
     setAuthStatus(null);
@@ -1251,7 +1290,19 @@ function App() {
         });
 
         if (result.status === 'success') {
-          setTripStatus('Trip details saved.');
+          let saveMessage = 'Trip details saved.';
+          if (settlements.length > 0) {
+            const reminderResult = await sendSettlementRemindersApi(activeTripId, settlements);
+            if (reminderResult.status === 'success') {
+              saveMessage = `Trip details saved. Settlement emails sent: ${reminderResult.sent || 0}${
+                (reminderResult.skipped || 0) > 0 ? `, skipped: ${reminderResult.skipped}` : ''
+              }.`;
+            } else {
+              saveMessage = `Trip details saved, but settlement emails failed: ${reminderResult.message || 'unknown error'}`;
+            }
+          }
+
+          setTripStatus(saveMessage);
           await refreshShareCandidates();
         } else {
           setTripStatus(result.message || 'Could not save trip details.');
@@ -1316,6 +1367,22 @@ function App() {
       minute: '2-digit',
       second: '2-digit',
     });
+
+  const currencySymbols: { [key: string]: string } = {
+    USD: '$',
+    EUR: '€',
+    GBP: '£',
+    INR: '₹',
+    AUD: 'A$',
+    CAD: 'C$',
+    JPY: '¥',
+    CNY: '¥',
+  };
+
+  const formatCurrency = (amount: number): string => {
+    const symbol = currencySymbols[selectedCurrency] || '$';
+    return `${symbol}${amount.toFixed(2)}`;
+  };
 
   const saveRenamedTrip = async () => {
     const nextName = renameTripDraft.trim();
@@ -2456,6 +2523,15 @@ function App() {
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               )}
+              {authView === 'signup' && (
+                <input
+                  type="text"
+                  placeholder="UPI ID (for receiving money)"
+                  value={authForm.upiId}
+                  onChange={(e) => setAuthForm((current) => ({ ...current, upiId: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              )}
               <input
                 type="email"
                 placeholder="Email"
@@ -2731,7 +2807,7 @@ function App() {
                   ) : (
                     <>
                       <p className="text-2xl font-bold text-slate-900">
-                        ${(backendSpendingStats?.totalAmount || 0).toFixed(2)}
+                        {formatCurrency(backendSpendingStats?.totalAmount || 0)}
                       </p>
                       <p className="text-[11px] text-amber-700">
                         {trackedRangeType === 'monthly'
@@ -2804,6 +2880,28 @@ function App() {
                 <p><span className="font-medium">Email:</span> {currentUser?.email}</p>
                 <p><span className="font-medium">Mode:</span> Signed-in</p>
                 <p><span className="font-medium">Active Trip Access:</span> {activeTripAccessType === 'shared' ? 'Shared (view-only)' : 'Owner'}</p>
+                <div className="mt-3">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">UPI ID</label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={profileUpiIdDraft}
+                      onChange={(e) => setProfileUpiIdDraft(e.target.value)}
+                      placeholder="yourname@bank"
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+                    />
+                    <button
+                      onClick={handleSaveProfileUpiId}
+                      disabled={savingProfileUpiId}
+                      className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900 transition-all disabled:opacity-60"
+                    >
+                      {savingProfileUpiId ? 'Saving...' : 'Save UPI'}
+                    </button>
+                  </div>
+                  {profileStatus && (
+                    <p className="text-xs text-slate-600 mt-1">{profileStatus}</p>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="space-y-2 text-sm text-slate-700">
@@ -2811,6 +2909,24 @@ function App() {
                 <p>Trip history is stored locally in this browser only.</p>
               </div>
             )}
+
+            <div className="mt-6 pt-4 border-t border-slate-200">
+              <label className="block text-sm font-medium text-slate-700 mb-2">Currency</label>
+              <select
+                value={selectedCurrency}
+                onChange={(e) => setSelectedCurrency(e.target.value as 'USD' | 'EUR' | 'GBP' | 'INR' | 'AUD' | 'CAD' | 'JPY' | 'CNY')}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+              >
+                <option value="USD">USD - US Dollar ($)</option>
+                <option value="EUR">EUR - Euro (€)</option>
+                <option value="GBP">GBP - British Pound (£)</option>
+                <option value="INR">INR - Indian Rupee (₹)</option>
+                <option value="AUD">AUD - Australian Dollar (A$)</option>
+                <option value="CAD">CAD - Canadian Dollar (C$)</option>
+                <option value="JPY">JPY - Japanese Yen (¥)</option>
+                <option value="CNY">CNY - Chinese Yuan (¥)</option>
+              </select>
+            </div>
           </div>
         )}
 
@@ -3040,7 +3156,7 @@ function App() {
                         onClick={refreshShareCandidates}
                         className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all"
                       >
-                        Refresh Share Options
+                        Share
                       </button>
                     </div>
                     {shareCandidates.length === 0 ? (
@@ -3067,7 +3183,7 @@ function App() {
                           disabled={updatingShares}
                           className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-60"
                         >
-                          {updatingShares ? 'Updating...' : 'Update Shared Access'}
+                          {updatingShares ? 'Updating...' : 'Confirm Share'}
                         </button>
                       </div>
                     )}
@@ -3400,7 +3516,7 @@ function App() {
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Detected total paid:</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500">$</span>
+                      <span className="text-gray-500">{currencySymbols[selectedCurrency] || '$'}</span>
                       <input
                         type="number"
                         value={detectedReceiptTotal ?? ''}
@@ -3419,11 +3535,11 @@ function App() {
                     <>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Items total:</span>
-                        <span className="font-semibold text-gray-800">${receiptItemsTotal.toFixed(2)}</span>
+                        <span className="font-semibold text-gray-800">{formatCurrency(receiptItemsTotal)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Assigned total:</span>
-                        <span className="font-semibold text-gray-800">${assignedItemsTotal.toFixed(2)}</span>
+                        <span className="font-semibold text-gray-800">{formatCurrency(assignedItemsTotal)}</span>
                       </div>
                     </>
                   )}
@@ -3702,7 +3818,7 @@ function App() {
                           </div>
                         </div>
                         <div className="text-right ml-auto">
-                          <p className="text-xl font-bold text-gray-800">${expense.amount.toFixed(2)}</p>
+                          <p className="text-xl font-bold text-gray-800">{formatCurrency(expense.amount)}</p>
                         </div>
                       </div>
                       
@@ -3713,7 +3829,7 @@ function App() {
                             {Object.entries(expense.foodOrders).map(([person, amount]) => (
                               <div key={person} className="flex justify-between">
                                 <span className="text-gray-600">{person}:</span>
-                                <span className="font-medium">${amount.toFixed(2)}</span>
+                                <span className="font-medium">{formatCurrency(parseFloat(amount))}</span>
                               </div>
                             ))}
                           </div>
@@ -3871,7 +3987,7 @@ function App() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-2xl font-bold text-gray-800">${settlement.amount.toFixed(2)}</p>
+                      <p className="text-2xl font-bold text-gray-800">{formatCurrency(settlement.amount)}</p>
                     </div>
                   </div>
                 ))}

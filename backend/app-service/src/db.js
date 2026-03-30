@@ -21,6 +21,7 @@ export const initDb = async () => {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_code TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_expires_at TIMESTAMP;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS upi_id TEXT;
 
     CREATE TABLE IF NOT EXISTS trips (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -75,6 +75,11 @@ interface SpendingBreakdownResult extends TripApiResult {
   data?: MonthlyBreakdown[];
 }
 
+interface SettlementReminderResult extends TripApiResult {
+  sent?: number;
+  skipped?: number;
+}
+
 const getAuthToken = () => localStorage.getItem('authToken') || localStorage.getItem('token') || '';
 
 async function parseJson(response: Response) {
@@ -357,6 +362,43 @@ export async function getUserSpendingBreakdownApi(): Promise<SpendingBreakdownRe
     return {
       status: 'error',
       message: error instanceof Error ? error.message : 'Failed to fetch spending breakdown',
+    };
+  }
+}
+
+export async function sendSettlementRemindersApi(
+  tripId: string,
+  settlements: Array<{ from: string; to: string; amount: number }>
+): Promise<SettlementReminderResult> {
+  const token = getAuthToken();
+  if (!token) {
+    return { status: 'error', message: 'Missing token' };
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}/settlement-reminders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ settlements }),
+    });
+
+    const data = await parseJson(response);
+    if (!response.ok) {
+      return { status: 'error', message: data.message || `HTTP ${response.status}` };
+    }
+
+    return {
+      status: 'success',
+      sent: Number(data.sent || 0),
+      skipped: Number(data.skipped || 0),
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to send settlement reminders',
     };
   }
 }

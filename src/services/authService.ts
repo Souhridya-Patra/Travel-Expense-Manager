@@ -4,6 +4,7 @@ export interface AuthUser {
   id: string;
   name: string;
   email: string;
+  upiId?: string;
 }
 
 interface AuthApiResult {
@@ -26,6 +27,7 @@ export async function registerWithEmail(payload: {
   name: string;
   email: string;
   password: string;
+  upiId: string;
 }): Promise<AuthApiResult> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
@@ -182,6 +184,41 @@ export async function loginWithGoogleIdToken(idToken: string): Promise<AuthApiRe
     return {
       status: 'error',
       message: error instanceof Error ? error.message : 'Google login failed',
+    };
+  }
+}
+
+export async function updateUserProfile(payload: {
+  upiId: string;
+}): Promise<AuthApiResult> {
+  const token = localStorage.getItem('authToken') || localStorage.getItem('token') || '';
+  if (!token) {
+    return { status: 'error', message: 'Missing token' };
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/user/profile`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await parseJson(response);
+    if (!response.ok) {
+      return { status: 'error', message: data.message || `HTTP ${response.status}` };
+    }
+
+    return {
+      status: 'success',
+      user: data.user,
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to update profile',
     };
   }
 }

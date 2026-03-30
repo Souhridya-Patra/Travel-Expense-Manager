@@ -59,6 +59,27 @@ const sendOtpEmail = async (email, otp) => {
   }
 };
 
+const sendSettlementReminderEmail = async ({ toEmail, debtorName, creditorName, amount, upiId, tripName }) => {
+  const info = await otpTransport.sendMail({
+    from: mailFrom,
+    to: toEmail,
+    subject: `Settlement reminder for ${tripName}`,
+    text: [
+      `Hi ${debtorName},`,
+      '',
+      `You owe ${creditorName} an amount of ${Number(amount).toFixed(2)} for trip "${tripName}".`,
+      `UPI ID to pay: ${upiId || 'Not provided yet. Please contact the recipient.'}`,
+      '',
+      'Thank you,',
+      'Travel Expense Manager'
+    ].join('\n'),
+  });
+
+  if (!mailHost) {
+    console.log('Settlement reminder email preview (jsonTransport):', info.message);
+  }
+};
+
 const assertTripAccess = async (tripId, userId) => {
   const trip = await pool.query(
     `SELECT t.id
@@ -81,9 +102,9 @@ app.get('/health', (_req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { name, email, password } = req.body;
-  if (!name || !email || !password) {
-    return res.status(400).json({ message: 'name, email and password are required' });
+  const { name, email, password, upiId } = req.body;
+  if (!name || !email || !password || !upiId) {
+    return res.status(400).json({ message: 'name, email, password and upiId are required' });
   }
 
   const normalizedEmail = email.toLowerCase();
@@ -93,9 +114,9 @@ app.post('/api/auth/register', async (req, res) => {
 
   try {
     await pool.query(
-      `INSERT INTO users(name, email, password_hash, is_verified, otp_code, otp_expires_at)
-       VALUES($1, $2, $3, FALSE, $4, $5)`,
-      [name, normalizedEmail, passwordHash, otp, otpExpiresAt]
+      `INSERT INTO users(name, email, password_hash, is_verified, otp_code, otp_expires_at, upi_id)
+       VALUES($1, $2, $3, FALSE, $4, $5, $6)`,
+      [name, normalizedEmail, passwordHash, otp, otpExpiresAt, String(upiId).trim()]
     );
 
     await sendOtpEmail(normalizedEmail, otp);
@@ -124,7 +145,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
 
   const normalizedEmail = email.toLowerCase();
   const userResult = await pool.query(
-    `SELECT id, name, email, is_verified, otp_code, otp_expires_at
+    `SELECT id, name, email, upi_id, is_verified, otp_code, otp_expires_at
      FROM users WHERE email = $1`,
     [normalizedEmail]
   );
@@ -136,7 +157,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
   const user = userResult.rows[0];
   if (user.is_verified) {
     const token = signToken({ sub: user.id, email: user.email });
-    return res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+    return res.json({ token, user: { id: user.id, name: user.name, email: user.email, upiId: user.upi_id || '' } });
   }
 
   if (!user.otp_code || !user.otp_expires_at) {
@@ -161,7 +182,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
   );
 
   const token = signToken({ sub: user.id, email: user.email });
-  return res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+  return res.json({ token, user: { id: user.id, name: user.name, email: user.email, upiId: user.upi_id || '' } });
 });
 
 app.post('/api/auth/resend-otp', async (req, res) => {
@@ -207,7 +228,7 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ message: 'email and password are required' });
   }
 
-  const result = await pool.query(`SELECT id, name, email, password_hash, is_verified FROM users WHERE email = $1`, [
+  const result = await pool.query(`SELECT id, name, email, upi_id, password_hash, is_verified FROM users WHERE email = $1`, [
     email.toLowerCase()
   ]);
 
@@ -230,7 +251,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const token = signToken({ sub: user.id, email: user.email });
-  return res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+  return res.json({ token, user: { id: user.id, name: user.name, email: user.email, upiId: user.upi_id || '' } });
 });
 
 app.post('/api/auth/google', async (req, res) => {
@@ -254,7 +275,7 @@ app.post('/api/auth/google', async (req, res) => {
     }
 
     let userResult = await pool.query(
-      `SELECT id, name, email, is_verified FROM users WHERE email = $1`,
+      `SELECT id, name, email, upi_id, is_verified FROM users WHERE email = $1`,
       [email]
     );
 
@@ -262,9 +283,9 @@ app.post('/api/auth/google', async (req, res) => {
       const randomPassword = crypto.randomBytes(32).toString('hex');
       const passwordHash = await bcrypt.hash(randomPassword, 10);
       userResult = await pool.query(
-        `INSERT INTO users(name, email, password_hash, is_verified)
-         VALUES($1, $2, $3, TRUE)
-         RETURNING id, name, email, is_verified`,
+        `INSERT INTO users(name, email, password_hash, is_verified, upi_id)
+         VALUES($1, $2, $3, TRUE, '')
+         RETURNING id, name, email, upi_id, is_verified`,
         [name, email, passwordHash]
       );
     } else if (!userResult.rows[0].is_verified) {
@@ -277,17 +298,41 @@ app.post('/api/auth/google', async (req, res) => {
         [userResult.rows[0].id]
       );
       userResult = await pool.query(
-        `SELECT id, name, email, is_verified FROM users WHERE id = $1`,
+        `SELECT id, name, email, upi_id, is_verified FROM users WHERE id = $1`,
         [userResult.rows[0].id]
       );
     }
 
     const user = userResult.rows[0];
     const token = signToken({ sub: user.id, email: user.email });
-    return res.json({ token, user });
+    return res.json({ token, user: { id: user.id, name: user.name, email: user.email, upiId: user.upi_id || '' } });
   } catch {
     return res.status(401).json({ message: 'Invalid Google token' });
   }
+});
+
+app.patch('/api/user/profile', authMiddleware, async (req, res) => {
+  const { upiId } = req.body;
+  const normalizedUpi = String(upiId || '').trim();
+
+  if (!normalizedUpi) {
+    return res.status(400).json({ message: 'upiId is required' });
+  }
+
+  const result = await pool.query(
+    `UPDATE users
+     SET upi_id = $1
+     WHERE id = $2
+     RETURNING id, name, email, upi_id`,
+    [normalizedUpi, req.user.sub]
+  );
+
+  if (result.rowCount === 0) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  const user = result.rows[0];
+  return res.json({ user: { id: user.id, name: user.name, email: user.email, upiId: user.upi_id || '' } });
 });
 
 app.get('/api/trips', authMiddleware, async (req, res) => {
@@ -353,6 +398,107 @@ app.patch('/api/trips/:tripId', authMiddleware, async (req, res) => {
   }
 
   return res.json({ trip: result.rows[0] });
+});
+
+app.post('/api/trips/:tripId/settlement-reminders', authMiddleware, async (req, res) => {
+  const { tripId } = req.params;
+  const { settlements } = req.body;
+
+  if (!Array.isArray(settlements)) {
+    return res.status(400).json({ message: 'settlements must be an array' });
+  }
+
+  const isOwner = await assertTripOwner(tripId, req.user.sub);
+  if (!isOwner) {
+    return res.status(403).json({ message: 'Only the trip owner can send settlement reminders' });
+  }
+
+  const tripResult = await pool.query(
+    `SELECT t.name, t.members, u.name AS owner_name, u.email AS owner_email
+     FROM trips t
+     JOIN users u ON u.id = t.user_id
+     WHERE t.id = $1 AND t.user_id = $2`,
+    [tripId, req.user.sub]
+  );
+
+  if (tripResult.rowCount === 0) {
+    return res.status(404).json({ message: 'Trip not found' });
+  }
+
+  const trip = tripResult.rows[0];
+  const normalizePerson = (value) => String(value || '').trim().toLowerCase();
+  const members = trip.members && typeof trip.members === 'object' ? trip.members : {};
+  const travelers = Array.isArray(members.travelers) ? members.travelers : [];
+
+  const personToEmail = new Map();
+  const ownerName = String(trip.owner_name || '').trim();
+  const ownerEmail = String(trip.owner_email || '').trim().toLowerCase();
+  if (ownerName && ownerEmail) {
+    personToEmail.set(normalizePerson(ownerName), ownerEmail);
+  }
+
+  travelers.forEach((traveler) => {
+    if (!traveler || typeof traveler !== 'object') {
+      return;
+    }
+    const travelerName = String(traveler.name || '').trim();
+    const travelerEmail = String(traveler.email || '').trim().toLowerCase();
+    if (travelerName && travelerEmail) {
+      personToEmail.set(normalizePerson(travelerName), travelerEmail);
+    }
+  });
+
+  const involvedEmails = [...new Set(
+    settlements
+      .flatMap((settlement) => [
+        personToEmail.get(normalizePerson(settlement?.from)),
+        personToEmail.get(normalizePerson(settlement?.to)),
+      ])
+      .filter(Boolean)
+  )];
+
+  const userResult = involvedEmails.length > 0
+    ? await pool.query(
+      `SELECT email, upi_id FROM users WHERE email = ANY($1::text[])`,
+      [involvedEmails]
+    )
+    : { rows: [] };
+  const upiByEmail = new Map(userResult.rows.map((row) => [String(row.email).toLowerCase(), String(row.upi_id || '').trim()]));
+
+  let sent = 0;
+  let skipped = 0;
+
+  for (const settlement of settlements) {
+    const debtorName = String(settlement?.from || '').trim();
+    const creditorName = String(settlement?.to || '').trim();
+    const amount = Number(settlement?.amount || 0);
+
+    if (!debtorName || !creditorName || !Number.isFinite(amount) || amount <= 0) {
+      skipped += 1;
+      continue;
+    }
+
+    const debtorEmail = personToEmail.get(normalizePerson(debtorName));
+    const creditorEmail = personToEmail.get(normalizePerson(creditorName));
+    if (!debtorEmail || !creditorEmail) {
+      skipped += 1;
+      continue;
+    }
+
+    const creditorUpiId = upiByEmail.get(creditorEmail) || '';
+
+    await sendSettlementReminderEmail({
+      toEmail: debtorEmail,
+      debtorName,
+      creditorName,
+      amount,
+      upiId: creditorUpiId,
+      tripName: String(trip.name || 'Trip'),
+    });
+    sent += 1;
+  }
+
+  return res.json({ status: 'success', sent, skipped });
 });
 
 app.get('/api/trips/:tripId/share-candidates', authMiddleware, async (req, res) => {
